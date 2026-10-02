@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data DJ</title>
+  <link rel="stylesheet" href="/src/style.css">
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
+</head>
+
+<body>
+  <div id="app">
+    <div class="header">
+      <div class="header-left">
+        <input type="file" accept=".csv" id="input-file">
+        <div class="dimension-container">
+          Dimension
+          <select id="dimension-switch">
+            <option value="2D">2D</option>
+            <option value="3D">3D</option>
+          </select>
+        </div>
+
+        <div class="dropdown-container">
+          <button class="main-btn">Dimensions</button>
+          <div class="dropdown hidden">
+            <div class="container-row">
+              <div class="text">XMIN</div>
+              <button class="bind-btn">Bind</button>
+            </div>
+            <div class="container-row">
+              <div class="text">XMAX</div>
+              <button class="bind-btn">Bind</button>
+            </div>
+            <div class="container-row">
+              <div class="text">YMIN</div>
+              <button class="bind-btn">Bind</button>
+            </div>
+            <div class="container-row">
+              <div class="text">YMAX</div>
+              <button class="bind-btn">Bind</button>
+            </div>
+            <div class="container-row">
+              <div class="text">Point Size</div>
+              <button class="bind-btn">Bind</button>
+            </div>
+            <div class="container-row">
+              <div class="text">Zoom</div>
+              <button class="bind-btn">Bind</button>
+            </div>
+            <div class="container-row">
+              <div class="text">Alpha</div>
+              <button class="bind-btn">Bind</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="dropdown-container">
+          <button class="main-btn">Filters</button>
+
+          <div class="dropdown hidden">
+            <div id="filter-list">
+            </div>
+            <div class="dropdown-actions">
+              <button id="add-filter-row">+ Add Filter</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="header-right">
+        <!-- TODO: Show grid lines using textbox setting option -->
+        <div class="axis-assign">
+          <div class="axis">
+            <button id="color-cycle" class="cycle">🔄</button>
+            Color: <select id="color-select">
+              <option value="">Column</option>
+            </select>
+          </div>
+          <div class="axis">
+            <button id="x-cycle" class="cycle">🔄</button>
+            X-axis: <select id="select-xaxis">
+              <option value="">Column</option>
+            </select>
+          </div>
+          <div class="axis">
+            <button id="y-cycle" class="cycle">🔄</button>
+            Y-axis: <select id="select-yaxis">
+              <option value="">Column</option>
+            </select>
+          </div>
+          <div class="axis hidden" id="z-axis-container">
+            <button id="z-cycle" class="cycle">🔄</button>
+            Z-axis: <select id="select-zaxis">
+              <option value="">Column</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="canvas-container">
+      <div class="legend hidden">
+        <div class="legend-title"></div>
+        <div class="legend-content"></div>
+      </div>
+      <canvas id="canvas"></canvas>
+      <!-- For Three.js^ -->
+      <div class="camera-config">
+        <p>
+          === Camera === <br />
+          Top: <span id="camera-top"></span> <br />
+          Bottom: <span id="camera-bottom"></span> <br />
+          Left: <span id="camera-left"></span> <br />
+          Right: <span id="camera-right"></span> <br />
+          Mouse: (<span id="mouse-left"></span>, <span id="mouse-right"></span>)
+        </p>
+      </div>
+      <div id="toast" class="hidden"></div>
+      <!-- </div> -->
+    </div>
+  </div>
+</body>
+
+<script type="module" src="/src/main.js" defer></script>
+
+</html>
