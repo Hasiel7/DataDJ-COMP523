@@ -212,3 +212,19 @@ body {
   font-size: 13px;
   color: #555;
 }
+
+.reduction-link {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 10px;
+  padding: 6px 8px;
+  background: #142c27;
+  color: white;
+  font-size: 11px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.reduction-link:hover {
+  background: #087f6c;
+}
