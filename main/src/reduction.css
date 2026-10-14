@@ -116,6 +116,8 @@ button, select { cursor: pointer; }
 .file-copy strong { overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .file-copy small { color: var(--muted); font: 9px var(--mono); }
 .browse-label { margin-left: auto; padding: 6px 9px; border: 1px solid var(--rule); background: white; font-size: 10px; font-weight: 700; }
+.header-toggle { display: flex; grid-column: 1 / -1; align-items: center; gap: 7px; min-height: 28px; color: #64716a; font-size: 10px; font-weight: 700; }
+.header-toggle input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
 
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: #64716a; font-size: 10px; font-weight: 700; }
 .field select, .field input {
@@ -227,6 +229,7 @@ button, select { cursor: pointer; }
     .workspace { width: min(100% - 24px, 760px); }
     .source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .file-picker { grid-column: 1 / -1; }
+    .header-toggle { grid-column: 1 / -1; }
     .workbench { grid-template-columns: 250px minmax(0, 1fr); }
     .embedding-metadata { grid-template-columns: repeat(3, 1fr); }
     .embedding-stat:nth-child(3) { border-right: 0; }

@@ -100,6 +100,32 @@ def test_label_and_identifier_columns_are_not_numeric_features(client: TestClien
     assert response.json()["feature_columns"] == ["value"]
 
 
+def test_headerless_csv_preserves_first_row_and_allows_first_column_as_label(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    response = upload_csv(
+        client,
+        "7,0.1,0.2\n3,0.3,0.4\n9,0.5,0.6\n",
+        has_header="false",
+        label_column="column_0",
+    )
+
+    assert response.status_code == 201
+    metadata = response.json()
+    assert metadata["source_row_count"] == 3
+    assert metadata["observation_count"] == 3
+    assert metadata["columns"][0]["name"] == "column_0"
+    assert metadata["label_column"] == "column_0"
+    assert metadata["feature_columns"] == ["column_1", "column_2"]
+
+    stored = LocalDatasetStorage(tmp_path).get(UUID(metadata["dataset_id"]))
+    assert stored is not None
+    assert stored.row_ids == [0, 1, 2]
+    assert stored.labels == [7, 3, 9]
+    np.testing.assert_array_equal(stored.features, [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])
+
+
 def test_subsampling_is_deterministic_and_keeps_row_alignment(
     client: TestClient, tmp_path: Path
 ) -> None:

@@ -29,6 +29,7 @@ async def create_dataset(
     preprocessing: Annotated[Literal["none", "standardize"], Form()] = "none",
     max_samples: Annotated[int | None, Form(gt=0, le=MAX_SAMPLE_COUNT)] = None,
     random_seed: Annotated[int, Form(ge=0)] = 42,
+    has_header: Annotated[bool, Form()] = True,
     storage: DatasetStorage = Depends(get_dataset_storage),
 ) -> DatasetMetadata:
     content = bytearray()
@@ -47,6 +48,7 @@ async def create_dataset(
             preprocessing,
             max_samples,
             random_seed,
+            has_header,
         )
     except DatasetPreparationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

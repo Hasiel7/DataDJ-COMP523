@@ -92,6 +92,7 @@ export function uploadDataset(
         preprocessing: Preprocessing;
         maxSamples: number | null;
         randomSeed: number;
+        hasHeader: boolean;
     },
 ): Promise<DatasetMetadata> {
     const body = new FormData();
@@ -104,6 +105,7 @@ export function uploadDataset(
     body.append('preprocessing', options.preprocessing);
     if (options.maxSamples !== null) body.append('max_samples', String(options.maxSamples));
     body.append('random_seed', String(options.randomSeed));
+    body.append('has_header', String(options.hasHeader));
     return requestJson('/datasets', { method: 'POST', body });
 }
 

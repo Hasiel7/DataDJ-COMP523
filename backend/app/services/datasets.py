@@ -31,6 +31,7 @@ class DatasetService:
         preprocessing: Literal["none", "standardize"] = "none",
         max_samples: int | None = None,
         random_seed: int = 42,
+        has_header: bool = True,
     ) -> PreparedDataset:
         if not csv_bytes:
             raise DatasetPreparationError("The uploaded CSV file is empty.")
@@ -44,14 +45,16 @@ class DatasetService:
             raise DatasetPreparationError("random_seed must be zero or greater.")
 
         try:
-            frame = pd.read_csv(io.BytesIO(csv_bytes))
+            frame = pd.read_csv(io.BytesIO(csv_bytes), header=0 if has_header else None)
         except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as error:
             raise DatasetPreparationError(f"Could not parse CSV: {error}") from error
 
         if frame.empty:
             raise DatasetPreparationError("The CSV must contain at least one data row.")
         if len(frame.columns) == 0:
-            raise DatasetPreparationError("The CSV must contain a header row.")
+            raise DatasetPreparationError("The CSV must contain at least one column.")
+        if not has_header:
+            frame.columns = [f"column_{index}" for index in range(len(frame.columns))]
 
         identifier_columns = list(dict.fromkeys(identifier_columns or []))
         requested_columns = set(identifier_columns)

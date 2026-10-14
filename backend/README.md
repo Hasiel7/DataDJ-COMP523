@@ -31,7 +31,7 @@ uv run --project backend ruff check .
 - `POST /api/datasets` accepts a multipart CSV file. Optional form fields are
 	`label_column`, repeated `identifier_columns`, `row_id_column`,
 	`preprocessing` (`none` or `standardize`), `max_samples` (1 through 100,000),
-	and `random_seed` (non-negative, default 42).
+	`random_seed` (non-negative, default 42), and `has_header` (default true).
 - `GET /api/datasets/{dataset_id}` returns dataset metadata.
 - `GET /api/health` returns `{"status":"ok"}`.
 
@@ -109,6 +109,13 @@ specified, zero-based source row positions are retained. Subsampling selects a
 deterministic random subset without replacement, then restores source row order;
 features, row IDs, and labels always use the same selected rows. Standardization
 is fitted on the selected observations.
+
+Set multipart field `has_header=false` for headerless numeric CSVs. The first
+record is preserved as data, and columns are named `column_0`, `column_1`, and
+so on. Select the appropriate generated column as the label when the file
+contains labels (for a conventional MNIST CSV with label in column zero, select
+`column_0`). The Reduction Lab has a “First row contains column names” checkbox
+that controls both header inspection and upload parsing.
 
 Prepared arrays and metadata are stored under `backend/data/datasets/{UUID}/`;
 raw CSV files are not retained. Local datasets are kept until manually removed.

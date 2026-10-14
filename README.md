@@ -63,7 +63,10 @@ Upload CSV files with `POST /api/datasets` and retrieve metadata with
 repeat `identifier_columns` to exclude from features, and optionally designate a
 `row_id_column`. Without that column, zero-based source row positions are used
 as row IDs. `preprocessing` accepts `none` or `standardize`; `max_samples` and
-`random_seed` control deterministic random subsampling.
+`random_seed` control deterministic random subsampling. The Reduction Lab has a
+header-row checkbox; when disabled, the first record is retained and columns are
+named `column_0`, `column_1`, and so on. For MNIST-style data with the label in
+the first column, choose `column_0` as the label column before preparing.
 
 ## Test and Lint
 

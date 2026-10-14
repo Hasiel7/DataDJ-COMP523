@@ -22,6 +22,7 @@ const labelColumn = element<HTMLSelectElement>('label-column');
 const rowIdColumn = element<HTMLSelectElement>('row-id-column');
 const identifierColumns = element<HTMLDivElement>('identifier-columns');
 const preprocessing = element<HTMLSelectElement>('preprocessing');
+const hasHeader = element<HTMLInputElement>('has-header');
 const maxSamples = element<HTMLInputElement>('max-samples');
 const seedInput = element<HTMLInputElement>('seed');
 const prepareButton = element<HTMLButtonElement>('prepare-button');
@@ -111,26 +112,35 @@ function inspectCsv(file: File): void {
     sourceStatus.textContent = 'Inspecting CSV';
     setBusy(true, 'prepare');
 
-    Papa.parse<Record<string, string>>(file, {
-        header: true,
+    Papa.parse<Record<string, string> | string[]>(file, {
+        header: hasHeader.checked,
         preview: 1,
         skipEmptyLines: true,
         complete: (result) => {
-            csvColumns = result.meta.fields ?? [];
+            const firstPreviewRow = result.data[0];
+            csvColumns = hasHeader.checked
+                ? result.meta.fields ?? []
+                : Array.isArray(firstPreviewRow)
+                    ? Array.from({ length: firstPreviewRow.length }, (_, index) => `column_${index}`)
+                    : [];
             if (result.errors.length > 0 || csvColumns.length === 0) {
                 selectedFile = null;
                 csvColumns = [];
                 sourceStatus.textContent = 'Could not read CSV';
-                fileHint.textContent = 'Check that the file has a header row.';
-                setError(result.errors[0]?.message ?? 'The CSV needs a header row with column names.');
+                fileHint.textContent = hasHeader.checked
+                    ? 'Check that the file has a header row.'
+                    : 'Check that the file contains comma-separated values.';
+                setError(result.errors[0]?.message ?? 'No CSV columns were found.');
                 setBusy(false, 'prepare');
             } else {
                 fillSelect(labelColumn, csvColumns, 'No label');
                 fillSelect(rowIdColumn, csvColumns, 'Use row position');
                 renderIdentifierColumns(csvColumns);
-                const likelyId = csvColumns.find((column) => /(^id$|_id$|sample|subject|patient|record)/i.test(column));
+                const likelyId = hasHeader.checked
+                    ? csvColumns.find((column) => /(^id$|_id$|sample|subject|patient|record)/i.test(column))
+                    : undefined;
                 if (likelyId) rowIdColumn.value = likelyId;
-                fileHint.textContent = `${csvColumns.length} columns · ${(file.size / 1024).toFixed(1)} KiB`;
+                fileHint.textContent = `${csvColumns.length} ${hasHeader.checked ? 'columns' : 'headerless columns'} · ${(file.size / 1024).toFixed(1)} KiB`;
                 sourceStatus.textContent = 'CSV ready';
                 setBusy(false, 'prepare');
             }
@@ -171,6 +181,7 @@ async function prepareDataset(): Promise<void> {
             preprocessing: preprocessing.value as 'none' | 'standardize',
             maxSamples: maximum,
             randomSeed,
+            hasHeader: hasHeader.checked,
         });
         renderDatasetMetadata(loadedDataset);
         sourceStatus.textContent = 'Dataset prepared';
@@ -335,6 +346,11 @@ function setAlgorithmParameters(algorithm: Algorithm): void {
 }
 
 csvInput.addEventListener('change', () => {
+    const file = csvInput.files?.[0];
+    if (file) inspectCsv(file);
+});
+
+hasHeader.addEventListener('change', () => {
     const file = csvInput.files?.[0];
     if (file) inspectCsv(file);
 });
