@@ -5,9 +5,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Data DJ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/src/style.css">
   <link rel="icon" href="/favicon.ico" type="image/x-icon">
-  <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -16,114 +18,139 @@
 
 <body>
   <div id="app">
-    <div class="header">
-      <div class="header-left">
-        <a href="./reduction.html" class="reduction-link">Dimensionality Reduction</a>
-        <input type="file" accept=".csv" id="input-file">
-        <div class="dimension-container">
-          Dimension
+    <header class="topbar">
+      <a class="brand" href="./index.html" aria-label="Data DJ explorer">DATA<span>DJ</span></a>
+
+      <div class="toolbar">
+        <label class="file-btn" for="input-file">
+          <input type="file" accept=".csv" id="input-file">
+          <span class="file-btn-action">Open CSV</span>
+          <span id="file-name" class="file-name">No file loaded</span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">View</span>
           <select id="dimension-switch">
             <option value="2D">2D</option>
             <option value="3D">3D</option>
           </select>
+        </label>
+
+        <span class="divider" aria-hidden="true"></span>
+
+        <div class="axis-assign">
+          <div class="axis">
+            <label class="field-label" for="select-xaxis">X</label>
+            <select id="select-xaxis" disabled>
+              <option value="">Column</option>
+            </select>
+            <button id="x-cycle" class="cycle" type="button" title="Bind a MIDI knob to cycle the X column">Bind</button>
+          </div>
+          <div class="axis">
+            <label class="field-label" for="select-yaxis">Y</label>
+            <select id="select-yaxis" disabled>
+              <option value="">Column</option>
+            </select>
+            <button id="y-cycle" class="cycle" type="button" title="Bind a MIDI knob to cycle the Y column">Bind</button>
+          </div>
+          <div class="axis hidden" id="z-axis-container">
+            <label class="field-label" for="select-zaxis">Z</label>
+            <select id="select-zaxis" disabled>
+              <option value="">Column</option>
+            </select>
+            <button id="z-cycle" class="cycle" type="button" title="Bind a MIDI knob to cycle the Z column">Bind</button>
+          </div>
+          <div class="axis">
+            <label class="field-label" for="color-select">Color</label>
+            <select id="color-select" disabled>
+              <option value="">Column</option>
+            </select>
+            <button id="color-cycle" class="cycle" type="button" title="Bind a MIDI knob to cycle the color column">Bind</button>
+          </div>
         </div>
 
+        <span class="divider" aria-hidden="true"></span>
+
         <div class="dropdown-container">
-          <button class="main-btn">Dimensions</button>
+          <button id="knobs-btn" class="main-btn" type="button">Knobs <span aria-hidden="true">▾</span></button>
           <div class="dropdown hidden">
+            <p class="dropdown-hint">Click Bind, then turn a knob on your controller.</p>
             <div class="container-row">
-              <div class="text">XMIN</div>
-              <button class="bind-btn">Bind</button>
+              <div class="text">Left edge</div>
+              <button class="bind-btn" type="button">Bind</button>
             </div>
             <div class="container-row">
-              <div class="text">XMAX</div>
-              <button class="bind-btn">Bind</button>
+              <div class="text">Right edge</div>
+              <button class="bind-btn" type="button">Bind</button>
             </div>
             <div class="container-row">
-              <div class="text">YMIN</div>
-              <button class="bind-btn">Bind</button>
+              <div class="text">Bottom edge</div>
+              <button class="bind-btn" type="button">Bind</button>
             </div>
             <div class="container-row">
-              <div class="text">YMAX</div>
-              <button class="bind-btn">Bind</button>
+              <div class="text">Top edge</div>
+              <button class="bind-btn" type="button">Bind</button>
             </div>
             <div class="container-row">
-              <div class="text">Point Size</div>
-              <button class="bind-btn">Bind</button>
+              <div class="text">Point size</div>
+              <button class="bind-btn" type="button">Bind</button>
             </div>
             <div class="container-row">
               <div class="text">Zoom</div>
-              <button class="bind-btn">Bind</button>
+              <button class="bind-btn" type="button">Bind</button>
             </div>
             <div class="container-row">
-              <div class="text">Alpha</div>
-              <button class="bind-btn">Bind</button>
+              <div class="text">Opacity</div>
+              <button class="bind-btn" type="button">Bind</button>
             </div>
           </div>
         </div>
 
         <div class="dropdown-container">
-          <button class="main-btn">Filters</button>
-
+          <button class="main-btn" type="button">Filters <span aria-hidden="true">▾</span></button>
           <div class="dropdown hidden">
             <div id="filter-list">
             </div>
             <div class="dropdown-actions">
-              <button id="add-filter-row">+ Add Filter</button>
+              <button id="add-filter-row" type="button" disabled>+ Add filter</button>
             </div>
           </div>
         </div>
       </div>
-      <div class="header-right">
-        <!-- TODO: Show grid lines using textbox setting option -->
-        <div class="axis-assign">
-          <div class="axis">
-            <button id="color-cycle" class="cycle">🔄</button>
-            Color: <select id="color-select">
-              <option value="">Column</option>
-            </select>
-          </div>
-          <div class="axis">
-            <button id="x-cycle" class="cycle">🔄</button>
-            X-axis: <select id="select-xaxis">
-              <option value="">Column</option>
-            </select>
-          </div>
-          <div class="axis">
-            <button id="y-cycle" class="cycle">🔄</button>
-            Y-axis: <select id="select-yaxis">
-              <option value="">Column</option>
-            </select>
-          </div>
-          <div class="axis hidden" id="z-axis-container">
-            <button id="z-cycle" class="cycle">🔄</button>
-            Z-axis: <select id="select-zaxis">
-              <option value="">Column</option>
-            </select>
-          </div>
-        </div>
+
+      <div class="topbar-right">
+        <span id="midi-status" class="midi-status" data-state="pending">MIDI</span>
+        <a href="./reduction.html" class="reduction-link">Reduction lab <span aria-hidden="true">↗</span></a>
       </div>
-    </div>
-    <div class="canvas-container">
+    </header>
+
+    <main class="stage">
+      <canvas id="canvas"></canvas>
+
+      <div id="empty-state" class="empty-state">
+        <h1>Open a CSV to plot it</h1>
+        <p>Each row becomes a dot. Pick which columns go on each axis and which one sets the color.</p>
+        <label class="file-btn file-btn-large" for="input-file"><span class="file-btn-action">Open CSV</span></label>
+        <p class="empty-hint">Got lots of columns? Squash them first in the <a href="./reduction.html">Reduction lab</a>.</p>
+      </div>
+
       <div class="legend hidden">
         <div class="legend-title"></div>
         <div class="legend-content"></div>
       </div>
-      <canvas id="canvas"></canvas>
-      <!-- For Three.js^ -->
-      <div class="camera-config">
-        <p>
-          === Camera === <br />
-          Top: <span id="camera-top"></span> <br />
-          Bottom: <span id="camera-bottom"></span> <br />
-          Left: <span id="camera-left"></span> <br />
-          Right: <span id="camera-right"></span> <br />
-          Mouse: (<span id="mouse-left"></span>, <span id="mouse-right"></span>)
-        </p>
+
+      <div class="camera-config" aria-label="Camera position">
+        <dl>
+          <dt>Top</dt><dd id="camera-top"></dd>
+          <dt>Bottom</dt><dd id="camera-bottom"></dd>
+          <dt>Left</dt><dd id="camera-left"></dd>
+          <dt>Right</dt><dd id="camera-right"></dd>
+          <dt>Mouse</dt><dd>(<span id="mouse-left">–</span>, <span id="mouse-right">–</span>)</dd>
+        </dl>
       </div>
-      <div id="toast" class="hidden"></div>
-      <!-- </div> -->
-    </div>
+
+      <div id="toast" class="hidden" role="status"></div>
+    </main>
   </div>
 </body>
 
