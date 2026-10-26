@@ -1,91 +1,61 @@
-let midiAccess: MIDIAccess;
+export type MidiStatus = 'pending' | 'unsupported' | 'denied' | 'no-device' | 'connected';
+type StatusCallback = (status: MidiStatus, deviceName?: string) => void;
+type MidiListener = (data: Uint8Array, portName: string) => void;
 
-export async function init() {
-    await getPermission()
-    navigator.requestMIDIAccess().then(handleAccessGranted, onMIDIFailure)
+// Listeners can be registered before access is granted. Every input port is
+// watched, so a device plugged in later still works.
+const listeners: MidiListener[] = [];
+const watchedInputs = new Set<MIDIInput>();
+let statusCallback: StatusCallback = () => { };
+
+export function onStatusChange(callback: StatusCallback) {
+    statusCallback = callback;
 }
 
-function handleAccessGranted(access: MIDIAccess) {
-    midiAccess = access;
-    console.log(midiAccess.inputs, midiAccess.outputs);
-    midiAccess.onstatechange = (event) => {
-        const port = event.port;
-        const state = port?.state; // "connected" or "disconnected"
-        const name = port?.name;
-        const type = port?.type; // "input" or "output"
-
-        console.log(`${type}: Port ${name} is now ${state}`);
-        console.log(midiAccess.inputs, midiAccess.outputs)
-
-        if (state === 'connected') {
-            midiAccess = access;
-        }
+export async function init() {
+    // Safari and Firefox do not implement Web MIDI.
+    if (!('requestMIDIAccess' in navigator)) {
+        statusCallback('unsupported');
+        return;
+    }
+    statusCallback('pending');
+    try {
+        const access = await navigator.requestMIDIAccess();
+        watchInputs(access);
+        access.onstatechange = (event) => {
+            const port = (event as MIDIConnectionEvent).port;
+            console.log(`${port?.type}: Port ${port?.name} is now ${port?.state}`);
+            watchInputs(access);
+        };
+    } catch (err) {
+        console.error(`Failed to get MIDI access - ${err}`);
+        statusCallback('denied');
     }
 }
 
-async function getPermission() {
-    navigator.permissions.query({ name: "midi" }).then((result) => {
-        if (result.state === "granted") {
-            // Access granted.
-            console.log('Access granted')
-        } else if (result.state === "prompt") {
-            // Using API will prompt for permission
-            console.log('Access will be prompted')
-        }
-        else {
-            throw new Error('Midi Access denied')
-        }
-        // Permission was denied by user prompt or permission policy
-    });
+// The VMX8 has two input ports ("Master" and "Private") and sends different
+// controls on each, so we listen to all of them. Messages carry the port name
+// so the same CC number on two ports stays two different controls.
+function watchInputs(access: MIDIAccess) {
+    for (const input of access.inputs.values()) {
+        if (watchedInputs.has(input)) continue;
+        watchedInputs.add(input);
+        input.addEventListener('midimessage', (event) => {
+            const data = (event as MIDIMessageEvent).data;
+            if (data) listeners.forEach((listener) => listener(data, input.name ?? 'MIDI port'));
+        });
+    }
+
+    const connected = Array.from(access.inputs.values()).filter((input) => input.state === 'connected');
+    if (connected.length === 0) {
+        statusCallback('no-device');
+        return;
+    }
+    // "SINCO VMX8-Master" and "SINCO VMX8-Private" -> "SINCO VMX8"
+    const name = connected[0].name?.replace(/[-\s]+(Master|Private)$/i, '') ?? 'MIDI device';
+    statusCallback('connected', name);
 }
 
-function onMIDIFailure(msg: string) {
-    console.error(`Failed to get MIDI access - ${msg}`);
-}
-
-// function listInputsAndOutputs() {
-//     for (const entry of midiAccess.inputs) {
-//         const input = entry[1];
-//         console.log(
-//             `Input port [type:'${input.type}']` +
-//             ` id:'${input.id}'` +
-//             ` manufacturer:'${input.manufacturer}'` +
-//             ` name:'${input.name}'` +
-//             ` version:'${input.version}'`,
-//         );
-//         break;
-//     }
-
-//     for (const entry of midiAccess.outputs) {
-//         const output = entry[1];
-//         console.log(
-//             `Output port [type:'${output.type}']` +
-//             `id:'${output.id}'` +
-//             `manufacturer:'${output.manufacturer}'` +
-//             `name:'${output.name}'` +
-//             `version:'${output.version}'`,
-//         );
-//         break;
-//     }
-// }
-
-// function startLoggingMIDIInput(callback: (event: MIDIMessageEvent) => void) {
-//     let first = true;
-//     // For some reason the device has 2 input port/channels.
-//     // So, we'll only listen to one of them.
-//     midiAccess.inputs.forEach((entry) => {
-//         if (first)
-//             console.log(entry)
-//         entry.onmidimessage = callback;
-//         first = false;
-//     });
-// }
-
-export function addMidiEventListener(callback: (event: MIDIMessageEvent) => void) {
-    let first = true;
-    midiAccess.inputs.forEach((entry) => {
-        if (first)
-            entry.addEventListener('midimessage', callback);
-        first = false;
-    });
+export function addMidiEventListener(callback: MidiListener) {
+    listeners.push(callback);
 }

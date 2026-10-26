@@ -23,12 +23,18 @@ export function newMessage(msg: string, delay: number = defaultDelay) {
         clearTimeout(toastTimeout)
     }
 
+    toastElement.classList.remove('error')
     setText(msg)
     showToast()
 
     toastTimeout = setTimeout(() => {
         hideToast()
     }, delay)
+}
+
+export function newError(msg: string, delay: number = 5000) {
+    newMessage(msg, delay)
+    toastElement.classList.add('error')
 }
 
 export function closeToast() {

@@ -2,7 +2,7 @@ import * as renderer from './render';
 import * as toast from './toast';
 import * as parser from './file';
 import { Lut } from 'three/addons/math/Lut.js';
-import { BindSelectController, BindCallbackController, type MidiCallback } from './inputManager';
+import * as input from './inputManager';
 import * as d3 from 'd3';
 
 const maxColorsOnScreen = 10;
@@ -92,7 +92,9 @@ function rotateSelectOption(selectElement: HTMLSelectElement, clockwise: boolean
     selectElement.dispatchEvent(new Event('change'));
 }
 
-function initDropdowns() {
+// Called once at startup; calling it again would add a second toggle
+// listener and each click would open and immediately close the dropdown.
+export function initDropdowns() {
     // const dropdown = document.getElementById('filter-dropdown') as HTMLDivElement;
     document.querySelectorAll(".dropdown-container").forEach((container) => {
         const dropdown = container.querySelector(".dropdown") as HTMLDivElement
@@ -110,104 +112,79 @@ function initDropdowns() {
             }
         });
     })
+    initSettingsDropdown()
+    initColumnCycleActions()
 }
 
 function initSettingsDropdown() {
-    const bindings: { text: string; key: string }[] = [
-        { text: 'XMIN', key: 'xmin' },
-        { text: 'XMAX', key: 'xmax' },
-        { text: 'YMIN', key: 'ymin' },
-        { text: 'YMAX', key: 'ymax' },
-        { text: 'Point Size', key: 'size' },
-        { text: 'Zoom', key: 'zoom' },
-        { text: 'Alpha', key: 'alpha' },
+    const bindings: { text: string; label: string; key: string }[] = [
+        { text: 'XMIN', label: 'Left edge', key: 'xmin' },
+        { text: 'XMAX', label: 'Right edge', key: 'xmax' },
+        { text: 'YMIN', label: 'Bottom edge', key: 'ymin' },
+        { text: 'YMAX', label: 'Top edge', key: 'ymax' },
+        { text: 'Point Size', label: 'Point size', key: 'size' },
+        { text: 'Zoom', label: 'Zoom', key: 'zoom' },
+        { text: 'Alpha', label: 'Opacity', key: 'alpha' },
     ];
     const rows = document.querySelectorAll(".dropdown-container .container-row");
     rows.forEach((row, i) => {
         const bindBtn = row.querySelector('.bind-btn') as HTMLButtonElement;
-        const { text, key } = bindings[i];
-        bindBtn.textContent = 'Bind';
-        let callback: (event: MIDIMessageEvent) => void;
-        callback = () => {
-            toast.newMessage("Error: input not assigned")
-            throw new Error("Error: MIDI Input not assigned")
-        }
+        const { text, label, key } = bindings[i];
+        let run: (step: input.Step) => void = () => { };
         const speed = 1.0;
-
-        // Cast to OrthographicCamera to access left/right/top/bottom properties
-        // If parser.renderer.camera is globally accessible, use that.
 
         switch (key) {
             case "xmin":
-                callback = (event) => {
-                    const camera = renderer.camera;
-                    const clockwise = event.data![2] === 0x1;
-                    renderer.moveCameraLeft(clockwise ? speed : -speed)
-                    camera.updateProjectionMatrix();
+                run = (step) => {
+                    renderer.moveCameraLeft(step * speed)
+                    renderer.camera.updateProjectionMatrix();
                     toast.newMessage(`${text} Changed`)
                 }
                 break;
             case "xmax":
-                callback = (event) => {
-                    const camera = renderer.camera;
-                    const clockwise = event.data![2] === 0x1;
-                    renderer.moveCameraRight(clockwise ? speed : -speed);
-                    camera.updateProjectionMatrix();
+                run = (step) => {
+                    renderer.moveCameraRight(step * speed);
+                    renderer.camera.updateProjectionMatrix();
                     toast.newMessage(`${text} Changed`)
                 }
                 break;
             case "ymin":
-                callback = (event) => {
-                    const camera = renderer.camera;
-                    const clockwise = event.data![2] === 0x1;
-                    // In WebGL, standard Y grows upwards. 
+                run = (step) => {
+                    // In WebGL, standard Y grows upwards.
                     // ymin typically corresponds to the bottom edge.
-                    renderer.moveCameraDown(clockwise ? speed : -speed);
-                    camera.updateProjectionMatrix();
+                    renderer.moveCameraDown(step * speed);
+                    renderer.camera.updateProjectionMatrix();
                     toast.newMessage(`${text} Changed`)
                 }
                 break;
             case "ymax":
-                callback = (event) => {
-                    const camera = renderer.camera;
-                    const clockwise = event.data![2] === 0x1;
+                run = (step) => {
                     // ymax typically corresponds to the top edge.
-                    renderer.moveCameraUp(clockwise ? speed : -speed);
-                    camera.updateProjectionMatrix();
+                    renderer.moveCameraUp(step * speed);
+                    renderer.camera.updateProjectionMatrix();
                     toast.newMessage(`${text} Changed`)
                 }
                 break;
 
             case "size":
-                callback = (event) => {
-                    const clockwise = event.data![2] === 0x1;
-                    // ymax typically corresponds to the top edge.
-                    let nsize = renderer.pointsMaterial.size;
-
-                    nsize = clockwise ? nsize + 1 : nsize - 1;
-                    renderer.changePointSize(nsize)
+                run = (step) => {
+                    renderer.changePointSize(renderer.pointsMaterial.size + step)
                     toast.newMessage(`${text} Changed`)
                 }
                 break;
 
             case "zoom":
-                callback = (event) => {
+                run = (step) => {
                     const camera = renderer.camera;
                     if (!camera) return;
 
-                    const clockwise = event.data![2] === 0x1;
                     const zoomSpeed = 0.1; // Adjust this if the knob is too sensitive
 
-                    // 2. Read the CURRENT zoom, not the material size
-                    let currentZoom = camera.zoom;
+                    // Clockwise = Zoom In, Counter-Clockwise = Zoom Out.
+                    // Never let zoom hit 0 or go negative, it will break the WebGL projection!
+                    camera.zoom = Math.max(0.1, camera.zoom + step * zoomSpeed);
 
-                    // 3. Calculate new zoom (Clockwise = Zoom In, Counter-Clockwise = Zoom Out)
-                    let newZoom = clockwise ? currentZoom + zoomSpeed : currentZoom - zoomSpeed;
-
-                    // 4. CRITICAL: Never let zoom hit 0 or go negative, it will break the WebGL projection!
-                    camera.zoom = Math.max(0.1, newZoom);
-
-                    // 5. CRITICAL: Tell Three.js to apply the math
+                    // Tell Three.js to apply the math
                     camera.updateProjectionMatrix();
 
                     toast.newMessage(`${text} Changed: ${camera.zoom.toFixed(1)}x`);
@@ -215,17 +192,42 @@ function initSettingsDropdown() {
                 break;
 
             case "alpha":
-                callback = (event) => {
+                run = (step) => {
                     const speed = 0.1; //Should let a knob control this
-                    const clockwise = event.data![2] === 0x1;
-                    const nAlpha = clockwise ? renderer.getPointsAlpha() + speed : renderer.getPointsAlpha() - speed;
-                    renderer.changeTransparency(Math.max(speed, nAlpha));
+                    const nAlpha = renderer.getPointsAlpha() + step * speed;
+                    renderer.changeTransparency(Math.min(1, Math.max(speed, nAlpha)));
                 }
                 break;
         }
 
-        new BindCallbackController(bindBtn, callback)
+        const id = `view.${key}`
+        input.registerAction({ id, label, group: 'View', run })
+        input.attachBindButton(bindBtn, id)
     })
+}
+
+// Filter rows get a fresh action id each, so a deleted row's binding never leaks into a new one
+let filterCount = 0;
+
+function initColumnCycleActions() {
+    const cycles: { id: string; label: string; select: string; button: string; message: string }[] = [
+        { id: 'column.x', label: 'X column', select: 'select-xaxis', button: 'x-cycle', message: 'X-Axis Changed to' },
+        { id: 'column.y', label: 'Y column', select: 'select-yaxis', button: 'y-cycle', message: 'Y-Axis Changed to' },
+        { id: 'column.z', label: 'Z column', select: 'select-zaxis', button: 'z-cycle', message: 'Z-Axis Changed to' },
+        { id: 'column.color', label: 'Color column', select: 'color-select', button: 'color-cycle', message: 'Coloring Changed to' },
+    ];
+    for (const { id, label, select, button, message } of cycles) {
+        const selectEl = document.getElementById(select) as HTMLSelectElement
+        input.registerAction({
+            id, label, group: 'Columns',
+            run: (step) => {
+                if (selectEl.disabled) return;
+                rotateSelectOption(selectEl, step === 1);
+                toast.newMessage(`${message} ${selectEl.value}`)
+            },
+        })
+        input.attachBindButton(document.getElementById(button) as HTMLButtonElement, id)
+    }
 }
 
 function setupHeader(data: string[][]) {
@@ -239,7 +241,12 @@ function setupHeader(data: string[][]) {
 
     const addFilterBtn = document.getElementById('add-filter-row') as HTMLButtonElement;
     const filterList = document.getElementById('filter-list') as HTMLDivElement;
-    initDropdowns()
+    // Filters from a previous file refer to columns that may no longer exist
+    filterList.replaceChildren()
+    for (const action of input.getActions()) {
+        if (action.group === 'Filters') input.unregisterAction(action.id)
+    }
+    addFilterBtn.disabled = false
 
     function applyFilters() {
         // Get the column names and values
@@ -318,7 +325,15 @@ function setupHeader(data: string[][]) {
         })
         const bindBtn = row.querySelector('.bind-btn') as HTMLButtonElement;
 
-        new BindSelectController(bindBtn, rowValSel);
+        const actionId = `filter.${++filterCount}`
+        const registerFilterAction = () => input.registerAction({
+            id: actionId,
+            label: rowSel.value ? `Filter: ${rowSel.value}` : 'Filter value',
+            group: 'Filters',
+            run: (step) => rotateSelectOption(rowValSel, step === 1),
+        })
+        registerFilterAction()
+        input.attachBindButton(bindBtn, actionId);
 
         // dependentSel.addEventListener('change', () => {
         //     const dependentName = dependentSel.value
@@ -341,6 +356,7 @@ function setupHeader(data: string[][]) {
             vals!.forEach((_, val) => {
                 createSelOption(rowValSel, val as string)
             })
+            registerFilterAction()
             toast.newMessage(`${colName}: ${rowValSel.value}`)
         })
 
@@ -356,6 +372,7 @@ function setupHeader(data: string[][]) {
         // Handle Delete logic
         row.querySelector('.delete-btn')?.addEventListener('click', () => {
             row.remove();
+            input.unregisterAction(actionId)
             applyFilters()
         });
 
@@ -363,19 +380,12 @@ function setupHeader(data: string[][]) {
         filterList.appendChild(row);
     }
 
-    addFilterBtn.addEventListener('click', createFilterRow);
+    // Assigned rather than added so loading another file doesn't stack handlers
+    addFilterBtn.onclick = createFilterRow;
 
     // Color Select
-    const colorCycleBtn = document.getElementById('color-cycle') as HTMLButtonElement;
     const colorSelect = document.getElementById('color-select') as HTMLSelectElement
     colorSelect.options.length = 0;
-    const cycleCallback: MidiCallback = (event) => {
-        const clockwise = event.data![2] === 0x1;
-        rotateSelectOption(colorSelect, clockwise);
-        toast.newMessage(`Coloring Changed to ${colorSelect.value}`)
-    }
-
-    new BindCallbackController(colorCycleBtn, cycleCallback);
 
     colorSelect.addEventListener('change', () => {
         const legend = document.querySelector('.legend') as HTMLDivElement;
@@ -424,7 +434,10 @@ function setupHeader(data: string[][]) {
                 };
             };
 
-            legendContent.innerHTML = getColorMap().preview;
+            legendContent.innerHTML = `
+                <div class="legend-gradient">${getColorMap().preview}</div>
+                <div class="legend-range"><span>${d3.format('.3~g')(min)}</span><span>${d3.format('.3~g')(max)}</span></div>
+                `;
 
             renderer.colorMapRowsContinuous(columnList, colorScale);
             return;
@@ -468,7 +481,6 @@ function setupHeader(data: string[][]) {
     })
 
     // Axes
-    const xAxisCycleBtn = document.getElementById('x-cycle') as HTMLButtonElement;
     const selectElX = document.getElementById('select-xaxis') as HTMLSelectElement
     selectElX.options.length = 0;
     selectElX.addEventListener('change', () => {
@@ -482,15 +494,6 @@ function setupHeader(data: string[][]) {
         renderer.setXColumn(colArr)
     })
 
-    const xCycleCallback: MidiCallback = (event) => {
-        const clockwise = event.data![2] === 0x1;
-        rotateSelectOption(selectElX, clockwise);
-        toast.newMessage(`X-Axis Changed to ${selectElX.value}`)
-    }
-
-    new BindCallbackController(xAxisCycleBtn, xCycleCallback);
-
-    const yAxisCycleBtn = document.getElementById('y-cycle') as HTMLButtonElement;
     const selectElY = document.getElementById('select-yaxis') as HTMLSelectElement
     selectElY.options.length = 0;
     selectElY.addEventListener('change', () => {
@@ -504,15 +507,7 @@ function setupHeader(data: string[][]) {
         renderer.setYColumn(colArr)
     })
 
-    const yCycleCallback: MidiCallback = (event) => {
-        const clockwise = event.data![2] === 0x1;
-        rotateSelectOption(selectElY, clockwise);
-        toast.newMessage(`Y-Axis Changed to ${selectElY.value}`)
-    }
-
-    new BindCallbackController(yAxisCycleBtn, yCycleCallback);
     // Z axis
-    const zAxisCycleBtn = document.getElementById('z-cycle') as HTMLButtonElement;
     const selectElZ = document.getElementById('select-zaxis') as HTMLSelectElement;
     selectElZ.options.length = 0;
     selectElZ.addEventListener('change', () => {
@@ -525,14 +520,6 @@ function setupHeader(data: string[][]) {
         const colArr = parser.parsedData.get(colName) as Float32Array
         renderer.setZColumn(colArr)
     })
-
-    const zCycleCallback: MidiCallback = (event) => {
-        const clockwise = event.data![2] === 0x1;
-        rotateSelectOption(selectElZ, clockwise);
-        toast.newMessage(`Z-Axis Changed to ${selectElZ.value}`)
-    }
-
-    new BindCallbackController(zAxisCycleBtn, zCycleCallback);
 
     //Dimension switch
     const dimensionSelect = document.getElementById('dimension-switch') as HTMLSelectElement;
@@ -556,13 +543,10 @@ function setupHeader(data: string[][]) {
         createSelOption(selectElY, colName)
         createSelOption(selectElZ, colName)
     })
+    for (const sel of [colorSelect, selectElX, selectElY, selectElZ]) sel.disabled = false
 
     renderer.renderColumns()
     renderer.setAllPointColors(1, 1, 0)
-
-
-    initSettingsDropdown()
-
 
 }
 

@@ -6,7 +6,7 @@ import * as d3 from 'd3';
 
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0, 0, 0)
+scene.background = new THREE.Color(0x0f1d1a)
 const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1_000_000_000);
 const perspCamera = new THREE.PerspectiveCamera();
 let controls: OrbitControls;
@@ -60,7 +60,18 @@ function animate(canvas: HTMLCanvasElement) {
     })
     // canvas.addEventListener('click', onMouseClick)
     const renderer = new THREE.WebGLRenderer({ canvas: canvas });
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    // Fill the area below the header, and follow it when the window resizes
+    const container = canvas.parentElement as HTMLElement;
+    const resize = () => {
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        if (width === 0 || height === 0) return;
+        renderer.setSize(width, height);
+        perspCamera.aspect = width / height;
+        perspCamera.updateProjectionMatrix();
+    };
+    resize();
+    new ResizeObserver(resize).observe(container);
     controls = new OrbitControls(camera, renderer.domElement);
     // Disable all 3D interaction
     controls.enableRotate = false;
@@ -84,17 +95,22 @@ function animate(canvas: HTMLCanvasElement) {
     })
 }
 
+// Mouse position in normalized device coordinates (-1 to 1) relative to the canvas
+function setMouseVector(event: MouseEvent) {
+    const rect = (event.target as HTMLElement).getBoundingClientRect();
+    mouseVector.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseVector.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+}
+
 function onMouseMove(event: MouseEvent) {
-    mouseVector.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouseVector.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    setMouseVector(event);
     const pos = getXYFromMouse();
     mouseLeftElement.textContent = pos.x.toFixed(decimalPlaces)
     mouseRightElement.textContent = pos.y.toFixed(decimalPlaces)
 }
 
 function onMouseClick(event: MouseEvent) {
-    mouseVector.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouseVector.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    setMouseVector(event);
     const pos = getXYFromMouse();
     newMessage(`Click @ (${pos.x.toFixed(decimalPlaces)}, ${pos.y.toFixed(decimalPlaces)})`)
 }
@@ -404,6 +420,7 @@ export function changePointSize(size: number) {
 export function changeTransparency(alpha: number) {
     if (alpha < 0 || alpha > 1) return;
     pointsTransparency = alpha;
+    if (!pointColorsBuffer) return; // No file loaded yet
     for (let i = 0; i < pointColorsBuffer.length; i++) {
         pointColorsBuffer[i * channelsPerColor + 3] = alpha; //opacity
     }

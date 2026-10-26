@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f3f2ed" />
+  <title>Data DJ | Reduction</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+</head>
+
+<body>
+  <main class="workspace">
+    <header class="topbar">
+      <a class="brand" href="./index.html" aria-label="Data DJ explorer">DATA<span>DJ</span></a>
+      <div class="topbar-title">
+        <span class="eyebrow">RESEARCH TOOLKIT / 01</span>
+        <h1>Reduction lab</h1>
+      </div>
+      <a class="quiet-link" href="./index.html">Open visualization <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <section class="source-strip" aria-labelledby="source-heading">
+      <div class="section-heading">
+        <div>
+          <span class="step-index">01</span>
+          <h2 id="source-heading">Source data</h2>
+        </div>
+        <span id="source-status" class="status-pill">No dataset loaded</span>
+      </div>
+
+      <div class="source-grid">
+        <label class="file-picker" for="csv-file">
+          <span class="file-glyph" aria-hidden="true">CSV</span>
+          <span class="file-copy">
+            <strong id="file-name">Choose a CSV file</strong>
+            <small id="file-hint">Numeric feature columns · up to 200 MiB</small>
+          </span>
+          <span class="browse-label">Browse</span>
+          <input id="csv-file" type="file" accept=".csv,text/csv" />
+        </label>
+
+        <label class="header-toggle">
+          <input id="has-header" type="checkbox" checked />
+          <span>First row contains column names</span>
+        </label>
+
+        <label class="field source-select">
+          <span>Label column</span>
+          <select id="label-column" disabled>
+            <option value="">No label</option>
+          </select>
+        </label>
+
+        <label class="field source-select">
+          <span>Row identifier</span>
+          <select id="row-id-column" disabled>
+            <option value="">Use row position</option>
+          </select>
+        </label>
+
+        <label class="field source-select">
+          <span>Preprocessing</span>
+          <select id="preprocessing">
+            <option value="none">None</option>
+            <option value="standardize">Standardize</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="source-bottom">
+        <div class="exclude-control">
+          <span class="field-caption">Exclude identifier columns</span>
+          <div id="identifier-columns" class="identifier-options empty-options">
+            Select a CSV to choose columns
+          </div>
+        </div>
+        <div class="upload-action">
+          <label class="field compact-field">
+            <span>Maximum observations</span>
+            <input id="max-samples" type="number" min="1" max="100000" placeholder="All rows" />
+          </label>
+          <label class="field compact-field seed-field">
+            <span>Seed</span>
+            <input id="seed" type="number" min="0" value="42" />
+          </label>
+          <button id="prepare-button" class="button button-primary" type="button" disabled>
+            Prepare dataset <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </div>
+      <div id="dataset-metadata" class="dataset-metadata" aria-live="polite"></div>
+    </section>
+
+    <div class="workbench">
+      <aside class="controls-panel" aria-label="Embedding settings">
+        <section class="control-section">
+          <div class="section-heading compact-heading">
+            <div><span class="step-index">02</span><h2>Method</h2></div>
+          </div>
+          <div class="segmented" role="radiogroup" aria-label="Dimensionality reduction method">
+            <label><input type="radio" name="algorithm" value="umap" checked /><span>UMAP</span></label>
+            <label><input type="radio" name="algorithm" value="tsne" /><span>t-SNE</span></label>
+            <label><input type="radio" name="algorithm" value="phate" /><span>PHATE</span></label>
+          </div>
+          <div id="parameters-umap" class="parameter-set">
+            <label class="field"><span>Neighbors <small>n_neighbors</small></span><input id="umap-neighbors" type="number" min="2" value="15" /></label>
+            <label class="field"><span>Minimum distance <small>min_dist</small></span><input id="umap-min-dist" type="number" min="0" max="1" step="0.05" value="0.1" /></label>
+            <label class="field"><span>Epochs <small>n_epochs</small></span><input id="umap-epochs" type="number" min="1" value="200" /></label>
+          </div>
+          <div id="parameters-tsne" class="parameter-set hidden">
+            <label class="field"><span>Perplexity <small>perplexity</small></span><input id="tsne-perplexity" type="number" min="0.1" step="0.5" value="30" /></label>
+            <label class="field"><span>Learning rate <small>learning_rate</small></span><input id="tsne-learning-rate" type="number" min="0.1" step="10" value="200" /></label>
+            <label class="field"><span>Iterations <small>max_iter</small></span><input id="tsne-max-iter" type="number" min="250" step="50" value="1000" /></label>
+            <p class="parameter-note">Perplexity must be lower than the observation count.</p>
+          </div>
+          <div id="parameters-phate" class="parameter-set hidden">
+            <label class="field"><span>Nearest neighbors <small>knn</small></span><input id="phate-knn" type="number" min="1" value="5" /></label>
+            <label class="field"><span>Diffusion time <small>t</small></span><input id="phate-t" type="number" min="1" value="5" /></label>
+            <label class="field"><span>Decay <small>decay</small></span><input id="phate-decay" type="number" min="0" step="1" value="40" /></label>
+          </div>
+        </section>
+
+        <section class="control-section output-section">
+          <div class="section-heading compact-heading">
+            <div><span class="step-index">03</span><h2>Output</h2></div>
+          </div>
+          <label class="field dimension-slider" for="dimensions">
+            <span>Embedding dimensions <output id="dimensions-value" for="dimensions">2D</output></span>
+            <input id="dimensions" type="range" min="2" max="3" step="1" value="2" />
+            <span class="slider-labels"><small>2D</small><small>3D</small></span>
+          </label>
+          <button id="generate-button" class="button button-generate" type="button" disabled>
+            <span class="generate-mark" aria-hidden="true">↓</span> Generate CSV
+          </button>
+          <p class="compute-note">Runs on the local Python backend. Exported rows retain source IDs and optional labels.</p>
+        </section>
+        <div id="error-message" class="error-message hidden" role="alert"></div>
+      </aside>
+
+      <section class="results-panel export-panel" aria-labelledby="results-heading">
+        <div class="results-toolbar">
+          <div>
+            <span class="eyebrow">COMPUTATION OUTPUT</span>
+            <h2 id="results-heading">Embedding CSV</h2>
+          </div>
+          <div id="result-status" class="result-status"><span class="status-dot"></span> Waiting for dataset</div>
+        </div>
+        <div id="export-result" class="export-result" aria-live="polite">
+          <div class="export-icon" aria-hidden="true">.CSV</div>
+          <h3>Ready when your dataset is</h3>
+          <p>Generate an embedding to download coordinates with their row IDs and optional labels.</p>
+          <a class="button button-visualize" href="./index.html">Go to visualization <span aria-hidden="true">↗</span></a>
+        </div>
+        <div id="embedding-metadata" class="embedding-metadata" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <footer class="workspace-footer">
+      <span>DATA DJ <span class="footer-separator">/</span> LOCAL COMPUTATION</span>
+      <span id="api-indicator"><i></i> API connection not checked</span>
+    </footer>
+  </main>
+  <script type="module" src="/src/reduction.ts"></script>
+</body>
+
+</html>
