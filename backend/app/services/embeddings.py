@@ -28,6 +28,15 @@ class EmbeddingService:
         dataset = self.dataset_storage.get(request.dataset_id)
         if dataset is None:
             raise DatasetNotFoundError("Dataset not found.")
+        return self.compute_prepared(dataset, request)
+
+    def compute_prepared(
+        self,
+        dataset: PreparedDataset,
+        request: EmbeddingRequest,
+    ) -> EmbeddingResult:
+        if dataset.metadata.dataset_id != request.dataset_id:
+            raise ValueError("Prepared dataset does not match the request.")
         self._validate_dataset_size(dataset)
 
         started_at = perf_counter()
