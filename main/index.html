@@ -19,26 +19,30 @@
 <body>
   <div id="app">
     <header class="topbar">
-      <a class="brand" href="./index.html" aria-label="Data DJ explorer">DATA<span>DJ</span></a>
+      <!-- Row 1: what's loaded and where you are -->
+      <div class="topbar-main">
+        <a class="brand" href="./index.html" aria-label="Data DJ explorer">DATA<span>DJ</span></a>
 
-      <div class="toolbar">
         <label class="file-btn" for="input-file">
           <input type="file" accept=".csv" id="input-file">
           <span class="file-btn-action">Open CSV</span>
           <span id="file-name" class="file-name">No file loaded</span>
         </label>
 
-        <label class="field">
-          <span class="field-label">View</span>
-          <select id="dimension-switch">
+        <div class="topbar-right">
+          <span id="midi-status" class="midi-status" data-state="pending">MIDI</span>
+          <a href="./reduction.html" class="reduction-link">Reduction lab <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+
+      <!-- Row 2: everything that changes the plot -->
+      <div class="toolbar">
+        <div class="tool-group">
+          <select id="dimension-switch" class="view-select" title="2D or 3D view">
             <option value="2D">2D</option>
             <option value="3D">3D</option>
           </select>
-        </label>
 
-        <span class="divider" aria-hidden="true"></span>
-
-        <div class="axis-assign">
           <div class="axis">
             <label class="field-label" for="select-xaxis">X</label>
             <select id="select-xaxis" disabled>
@@ -71,61 +75,93 @@
 
         <span class="divider" aria-hidden="true"></span>
 
-        <div class="dropdown-container">
-          <button id="knobs-btn" class="main-btn" type="button">Knobs <span aria-hidden="true">▾</span></button>
-          <div class="dropdown hidden">
-            <p class="dropdown-hint">Click Bind, then turn a knob on your controller.</p>
-            <div class="container-row">
-              <div class="text">Left edge</div>
-              <button class="bind-btn" type="button">Bind</button>
+        <div class="tool-group">
+          <div class="dropdown-container hidden" id="runs-container">
+            <button class="main-btn run-btn" type="button">Run <span id="run-label" class="run-label"></span> <span aria-hidden="true">▾</span></button>
+            <div class="dropdown hidden">
+              <p class="dropdown-hint" id="runs-summary"></p>
+              <div id="run-pickers"></div>
+              <div class="picker-row">
+                <div class="text">Step through all runs</div>
+                <button id="run-step-bind" class="bind-btn" type="button">Bind</button>
+              </div>
             </div>
-            <div class="container-row">
-              <div class="text">Right edge</div>
-              <button class="bind-btn" type="button">Bind</button>
+          </div>
+
+          <div class="dropdown-container">
+            <button class="main-btn" type="button">Filters <span aria-hidden="true">▾</span></button>
+            <div class="dropdown hidden">
+              <div id="filter-list">
+              </div>
+              <div class="dropdown-actions">
+                <button id="add-filter-row" type="button" disabled>+ Add filter</button>
+              </div>
             </div>
-            <div class="container-row">
-              <div class="text">Bottom edge</div>
-              <button class="bind-btn" type="button">Bind</button>
-            </div>
-            <div class="container-row">
-              <div class="text">Top edge</div>
-              <button class="bind-btn" type="button">Bind</button>
-            </div>
-            <div class="container-row">
-              <div class="text">Point size</div>
-              <button class="bind-btn" type="button">Bind</button>
-            </div>
-            <div class="container-row">
-              <div class="text">Zoom</div>
-              <button class="bind-btn" type="button">Bind</button>
-            </div>
-            <div class="container-row">
-              <div class="text">Opacity</div>
-              <button class="bind-btn" type="button">Bind</button>
+          </div>
+
+          <!-- Star saves, the menu lists; drawn as one split button -->
+          <div class="split-btn">
+            <button id="favorite-save" class="star-btn" type="button" title="Save this view as a favorite" disabled>☆</button>
+            <div class="dropdown-container">
+              <button class="main-btn" type="button">Favorites <span aria-hidden="true">▾</span></button>
+              <div class="dropdown hidden">
+                <div id="favorites-list"></div>
+                <div class="picker-row">
+                  <div class="text">Step through favorites</div>
+                  <button id="favorites-step-bind" class="bind-btn" type="button">Bind</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="dropdown-container">
-          <button class="main-btn" type="button">Filters <span aria-hidden="true">▾</span></button>
-          <div class="dropdown hidden">
-            <div id="filter-list">
-            </div>
-            <div class="dropdown-actions">
-              <button id="add-filter-row" type="button" disabled>+ Add filter</button>
+        <div class="tool-group tool-group-end">
+          <select id="background-select" class="background-select" title="Plot background">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+          <div class="dropdown-container">
+            <button id="knobs-btn" class="main-btn" type="button">Knobs <span aria-hidden="true">▾</span></button>
+            <div class="dropdown dropdown-right hidden">
+              <p class="dropdown-hint">Click Bind, then turn a knob on your controller.</p>
+              <div class="container-row">
+                <div class="text">Left edge</div>
+                <button class="bind-btn" type="button">Bind</button>
+              </div>
+              <div class="container-row">
+                <div class="text">Right edge</div>
+                <button class="bind-btn" type="button">Bind</button>
+              </div>
+              <div class="container-row">
+                <div class="text">Bottom edge</div>
+                <button class="bind-btn" type="button">Bind</button>
+              </div>
+              <div class="container-row">
+                <div class="text">Top edge</div>
+                <button class="bind-btn" type="button">Bind</button>
+              </div>
+              <div class="container-row">
+                <div class="text">Point size</div>
+                <button class="bind-btn" type="button">Bind</button>
+              </div>
+              <div class="container-row">
+                <div class="text">Zoom</div>
+                <button class="bind-btn" type="button">Bind</button>
+              </div>
+              <div class="container-row">
+                <div class="text">Opacity</div>
+                <button class="bind-btn" type="button">Bind</button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-
-      <div class="topbar-right">
-        <span id="midi-status" class="midi-status" data-state="pending">MIDI</span>
-        <a href="./reduction.html" class="reduction-link">Reduction lab <span aria-hidden="true">↗</span></a>
       </div>
     </header>
 
     <main class="stage">
       <canvas id="canvas"></canvas>
+      <svg id="axes" class="axes" aria-hidden="true"></svg>
+      <div id="tooltip" class="tooltip hidden" role="tooltip"></div>
 
       <div id="empty-state" class="empty-state">
         <h1>Open a CSV to plot it</h1>
@@ -140,13 +176,14 @@
       </div>
 
       <div class="camera-config" aria-label="Camera position">
-        <dl>
+        <!-- The axes show the view's edges now; these stay for render.ts but aren't shown -->
+        <dl hidden>
           <dt>Top</dt><dd id="camera-top"></dd>
           <dt>Bottom</dt><dd id="camera-bottom"></dd>
           <dt>Left</dt><dd id="camera-left"></dd>
           <dt>Right</dt><dd id="camera-right"></dd>
-          <dt>Mouse</dt><dd>(<span id="mouse-left">–</span>, <span id="mouse-right">–</span>)</dd>
         </dl>
+        <span class="mouse-readout">(<span id="mouse-left">–</span>, <span id="mouse-right">–</span>)</span>
       </div>
 
       <div id="toast" class="hidden" role="status"></div>

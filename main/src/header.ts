@@ -126,7 +126,8 @@ function initSettingsDropdown() {
         { text: 'Zoom', label: 'Zoom', key: 'zoom' },
         { text: 'Alpha', label: 'Opacity', key: 'alpha' },
     ];
-    const rows = document.querySelectorAll(".dropdown-container .container-row");
+    // Only the Knobs menu: rows are matched to `bindings` by position
+    const rows = document.querySelectorAll("#knobs-btn + .dropdown .container-row");
     rows.forEach((row, i) => {
         const bindBtn = row.querySelector('.bind-btn') as HTMLButtonElement;
         const { text, label, key } = bindings[i];
@@ -178,16 +179,15 @@ function initSettingsDropdown() {
                     const camera = renderer.camera;
                     if (!camera) return;
 
-                    const zoomSpeed = 0.1; // Adjust this if the knob is too sensitive
-
                     // Clockwise = Zoom In, Counter-Clockwise = Zoom Out.
+                    // Multiply rather than add, so each click feels the same at 0.1x and at 100x.
                     // Never let zoom hit 0 or go negative, it will break the WebGL projection!
-                    camera.zoom = Math.max(0.1, camera.zoom + step * zoomSpeed);
+                    camera.zoom = Math.min(1000, Math.max(0.05, camera.zoom * Math.pow(1.15, step)));
 
                     // Tell Three.js to apply the math
                     camera.updateProjectionMatrix();
 
-                    toast.newMessage(`${text} Changed: ${camera.zoom.toFixed(1)}x`);
+                    toast.newMessage(`${text} Changed: ${camera.zoom.toPrecision(3)}x`);
                 }
                 break;
 
@@ -208,6 +208,35 @@ function initSettingsDropdown() {
 
 // Filter rows get a fresh action id each, so a deleted row's binding never leaks into a new one
 let filterCount = 0;
+
+// An "=" filter lists every value; past this many, only range comparisons are offered
+const maxFilterOptions = 500;
+
+export type FilterOp = '=' | '>' | '>=' | '<' | '<=';
+
+export interface FilterState {
+    column: string;
+    op: FilterOp;
+    value: string; // '' = no value yet, so the filter lets everything through
+}
+
+// Everything about the view that a favorite saves, apart from the result-switcher run
+export interface ViewState {
+    dimension: string;
+    x: string;
+    y: string;
+    z: string;
+    color: string;
+    filters: FilterState[];
+    hiddenCategories: string[]; // legend entries clicked off
+}
+
+// Set by setupHeader for the loaded file
+let addFilterRow: (init?: FilterState) => void = () => { };
+let applyFilters: () => void = () => { };
+let applyLegend: () => void = () => { };
+// Labels of the legend categories that are hidden
+let legendHidden = new Set<string>();
 
 function initColumnCycleActions() {
     const cycles: { id: string; label: string; select: string; button: string; message: string }[] = [
@@ -230,14 +259,46 @@ function initColumnCycleActions() {
     }
 }
 
+// Test for one filter row, or null when it doesn't filter anything yet
+function filterTest({ column, op, value }: FilterState): ((v: number) => boolean) | null {
+    if (value === '' || !parser.parsedData.has(column)) return null;
+    if (op === '=') {
+        // parsedData holds numbers as float32, and strings as their id
+        const target = parser.colTypes.get(column) === 'string'
+            ? parser.strColMap.get(column)?.get(value)
+            : Math.fround(parseFloat(value));
+        if (target === undefined) return () => false;
+        return (v) => v === target;
+    }
+    const t = parseFloat(value);
+    if (isNaN(t)) return null;
+    switch (op) {
+        case '>': return (v) => v > t;
+        case '>=': return (v) => v >= t;
+        case '<': return (v) => v < t;
+        case '<=': return (v) => v <= t;
+    }
+}
+
+function readFilterRow(row: Element): FilterState {
+    const op = (row.querySelector('.filter-op') as HTMLSelectElement).value as FilterOp;
+    return {
+        column: (row.querySelector('.filter-field') as HTMLSelectElement).value,
+        op,
+        value: op === '='
+            ? (row.querySelector('.filter-value') as HTMLSelectElement).value
+            : (row.querySelector('.filter-number') as HTMLInputElement).value,
+    };
+}
+
 function setupHeader(data: string[][]) {
     renderer.clearPoints()
     parser.parseData(data)
 
-    const cols: string[] = data[0]
+    const cols: string[] = parser.columns // blank header cells already renamed
     // TODO: use global data variable
 
-    renderer.initDrawData(data.length)
+    renderer.initDrawData(data.length - 1) // data[0] is the header row, not a point
 
     const addFilterBtn = document.getElementById('add-filter-row') as HTMLButtonElement;
     const filterList = document.getElementById('filter-list') as HTMLDivElement;
@@ -248,126 +309,158 @@ function setupHeader(data: string[][]) {
     }
     addFilterBtn.disabled = false
 
-    function applyFilters() {
-        // Get the column names and values
-        type Pair<T, K> = [T, K];
-        let tuples: Pair<string, string>[] = []
+    applyFilters = () => {
+        const tests: { col: Float32Array; test: (v: number) => boolean }[] = []
         for (const filterRow of filterList.children) {
-            const rowSel = filterRow.querySelector('.filter-field') as HTMLSelectElement
-            const rowValSel = filterRow.querySelector('.filter-operator') as HTMLSelectElement
-            //  const deleteBtn = filterRow.querySelector('.delete-btn') as HTMLButtonElement
-            //  const bindBtn = filterRow.querySelector('.bind-btn') as HTMLButtonElement
-            const colVal = rowSel.value
-            const val = rowValSel.value
-            tuples.push([colVal, val])
+            const filter = readFilterRow(filterRow)
+            const test = filterTest(filter)
+            if (test) tests.push({ col: parser.parsedData.get(filter.column)!, test })
         }
-        console.log(tuples)
-
-        const rowMask = new Uint8Array(data.length)
-
-        // // TODO: There is definitely a better and more efficient way to do all of this.
-        // // 1. Dont need to make a mask array, can just apply the transformation directly
-        // // 2. Probably Don't need to check if the value is a number or not, the reason I'm doing this is because
-        // // PapaParse is parsing numbers to an extra decimal point (e.g. 15 is "15.0")
-
-        for (let i = 1; i < data.length; i++) {
-            let flag: boolean = true;
-            for (let j = 0; j < tuples.length; j++) {
-
-                const colName = tuples[j][0]
-                const selectedColValue = tuples[j][1];
-                if (selectedColValue === '') return;
-
-                const colIdx = parser.getColIndex(colName)
-                const isNum = !isNaN(parseFloat(data[1][colIdx]))
-
-                const cell = data[i][colIdx]
-                if (isNum) {
-                    // TODO: change this to range or float comparison (epsilon)
-                    if (parseFloat(cell) !== parseFloat(selectedColValue))
-                        flag = false;
-                }
-                else {
-                    if (cell !== selectedColValue) {
-                        flag = false;
-                        break;
-                    }
-                }
+        if (tests.length === 0) {
+            renderer.setVisibilityLayer('filters', null)
+            return
+        }
+        // One entry per point. Point i is CSV row i + 1 (row 0 is the header).
+        const rowMask = new Uint8Array(data.length - 1)
+        for (let i = 0; i < rowMask.length; i++) {
+            let flag = 1;
+            for (const { col, test } of tests) {
+                if (!test(col[i])) { flag = 0; break; }
             }
-            rowMask[i] = flag ? 1 : 0;
+            rowMask[i] = flag;
         }
-        renderer.showPoints(rowMask)
+        renderer.setVisibilityLayer('filters', rowMask)
     }
 
     // Function to create a new filter row
-    function createFilterRow() {
+    function createFilterRow(init?: FilterState) {
         const row = document.createElement('div');
         row.className = 'filter-row';
 
         row.innerHTML = `
-        Col
-        <select class="filter-field">
+        <select class="filter-field" title="Column">
         </select>
-        <!--Dependent:
-        <select class="filter-dependents">
-        </select> -->
-        <select class="filter-operator">
+        <select class="filter-op" title="Comparison">
+            <option value="=">=</option>
+            <option value=">">&gt;</option>
+            <option value=">=">≥</option>
+            <option value="<">&lt;</option>
+            <option value="<=">≤</option>
         </select>
+        <select class="filter-value" title="Value">
+        </select>
+        <input class="filter-number hidden" type="number" step="any" title="Threshold">
         <button class="bind-btn">Bind</button>
         <button class="delete-btn">×</button>
         `;
-        // const dependentSel = row.querySelector('.filter-dependents') as HTMLSelectElement
         const rowSel = row.querySelector('.filter-field') as HTMLSelectElement
-        const rowValSel = row.querySelector('.filter-operator') as HTMLSelectElement
-        cols.forEach((colName) => {
-            createSelOption(rowSel, colName)
-            // createSelOption(dependentSel, colName)
-        })
+        const opSel = row.querySelector('.filter-op') as HTMLSelectElement
+        const rowValSel = row.querySelector('.filter-value') as HTMLSelectElement
+        const numInput = row.querySelector('.filter-number') as HTMLInputElement
+        cols.forEach((colName) => createSelOption(rowSel, colName))
         const bindBtn = row.querySelector('.bind-btn') as HTMLButtonElement;
+
+        // How far one knob click moves a threshold
+        let knobStep = 1;
+
+        const showOp = () => {
+            const isRange = opSel.value !== '=';
+            rowValSel.classList.toggle('hidden', isRange);
+            numInput.classList.toggle('hidden', !isRange);
+        }
+
+        // Refill the value list and range hints for the chosen column
+        const fillValues = () => {
+            const colName = rowSel.value
+            const vals = parser.strColMap.get(colName)
+            if (vals === undefined) {
+                throw new Error(`Column ${colName} is not properly parsed (Col map is undefined).`)
+            }
+            const isNum = parser.colTypes.get(colName) === 'number'
+            const tooMany = isNum && vals.size > maxFilterOptions
+            // Comparisons only make sense for numbers; a list of thousands of exact values doesn't help anyone
+            for (const opt of opSel.options) opt.disabled = opt.value === '=' ? tooMany : !isNum
+            if (opSel.selectedOptions[0]?.disabled) opSel.value = isNum ? '>=' : '='
+
+            rowValSel.replaceChildren()
+            const any = document.createElement('option')
+            any.value = ''
+            any.textContent = 'Any'
+            rowValSel.appendChild(any)
+            if (!tooMany) {
+                const sorted = Array.from(vals.keys()).sort(isNum
+                    ? (a, b) => (a as number) - (b as number)
+                    : (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }))
+                sorted.slice(0, maxFilterOptions).forEach((val) => createSelOption(rowValSel, String(val)))
+            }
+
+            numInput.value = ''
+            if (isNum) {
+                const [min, max] = d3.extent(parser.parsedData.get(colName)!) as [number, number]
+                const fmt = d3.format('.4~g')
+                numInput.placeholder = `${fmt(min)} – ${fmt(max)}`
+                knobStep = min < max ? d3.tickStep(min, max, 50) : 1
+            }
+            showOp()
+        }
 
         const actionId = `filter.${++filterCount}`
         const registerFilterAction = () => input.registerAction({
             id: actionId,
             label: rowSel.value ? `Filter: ${rowSel.value}` : 'Filter value',
             group: 'Filters',
-            run: (step) => rotateSelectOption(rowValSel, step === 1),
+            run: (step) => {
+                if (opSel.value === '=') {
+                    rotateSelectOption(rowValSel, step === 1)
+                    return
+                }
+                // A knob nudges the threshold, starting from the middle of the column's range
+                const [min, max] = d3.extent(parser.parsedData.get(rowSel.value)!) as [number, number]
+                const current = parseFloat(numInput.value)
+                const next = (isNaN(current) ? (min + max) / 2 : current) + step * knobStep
+                numInput.value = next.toFixed(d3.precisionFixed(knobStep))
+                applyFilters()
+                toast.newMessage(`${rowSel.value} ${opSel.selectedOptions[0].textContent} ${numInput.value}`)
+            },
         })
+
+        fillValues()
+        if (init && cols.includes(init.column)) {
+            rowSel.value = init.column
+            fillValues()
+            opSel.value = init.op
+            if (init.op === '=') {
+                // The saved value might be past the option cap; add it so it can be selected
+                if (!Array.from(rowValSel.options).some((o) => o.value === init.value)) createSelOption(rowValSel, init.value)
+                rowValSel.value = init.value
+            }
+            else numInput.value = init.value
+            showOp()
+        }
         registerFilterAction()
         input.attachBindButton(bindBtn, actionId);
 
-        // dependentSel.addEventListener('change', () => {
-        //     const dependentName = dependentSel.value
-        //     const colName = rowSel.value
-        //     if (colName === '' || dependentName === '') {
-        //         toast.newMessage("Dependent or Col Filter cannot be null")
-        //         return;
-        //     }
-        //     parser.dependents.set(colName, dependentName)
-        // })
-
-        // Handle Bind logic
         rowSel.addEventListener('change', () => {
-            const colName = rowSel.value
-            const vals = parser.strColMap.get(colName)
-            if (vals === undefined) {
-                throw new Error(`Column ${colName} is not properly parsed (Col map is undefined).`)
-            }
-            rowValSel.replaceChildren()
-            vals!.forEach((_, val) => {
-                createSelOption(rowValSel, val as string)
-            })
+            fillValues()
             registerFilterAction()
-            toast.newMessage(`${colName}: ${rowValSel.value}`)
+            applyFilters()
+            toast.newMessage(`Filtering on ${rowSel.value}`)
         })
 
+        opSel.addEventListener('change', () => {
+            // Carry an exact value over as the starting threshold
+            if (opSel.value !== '=' && numInput.value === '' && rowValSel.value !== '') numInput.value = rowValSel.value
+            showOp()
+            applyFilters()
+        })
 
         rowValSel.addEventListener('change', () => {
-            // TODO: Make a function that is called whenever any 
-            // of the filters changes and call it here
             const colName = rowSel.value
-            toast.newMessage(`${colName}: ${rowValSel.value}`)
+            toast.newMessage(`${colName}: ${rowValSel.value || 'Any'}`)
             applyFilters()
         });
+
+        numInput.addEventListener('input', applyFilters)
 
         // Handle Delete logic
         row.querySelector('.delete-btn')?.addEventListener('click', () => {
@@ -376,30 +469,36 @@ function setupHeader(data: string[][]) {
             applyFilters()
         });
 
-
         filterList.appendChild(row);
     }
 
     // Assigned rather than added so loading another file doesn't stack handlers
-    addFilterBtn.onclick = createFilterRow;
+    addFilterBtn.onclick = () => createFilterRow();
+    addFilterRow = createFilterRow;
 
     // Color Select
     const colorSelect = document.getElementById('color-select') as HTMLSelectElement
     colorSelect.options.length = 0;
+    const legend = document.querySelector('.legend') as HTMLDivElement;
+    const legendTitle = legend.querySelector('.legend-title') as HTMLDivElement
+    const legendContent = legend.querySelector('.legend-content') as HTMLDivElement
+    legend.classList.add('hidden') // initDrawData already dropped the old file's legend layer
 
-    colorSelect.addEventListener('change', () => {
-        const legend = document.querySelector('.legend') as HTMLDivElement;
-        const legendTitle = legend.querySelector('.legend-title') as HTMLDivElement
-        const legendContent = legend.querySelector('.legend-content') as HTMLDivElement
+    // onchange (not addEventListener) so loading another file replaces the handler
+    colorSelect.onchange = () => {
         const colName = colorSelect.value
+        // A new coloring starts with every category shown
+        legendHidden = new Set()
+        applyLegend = () => { }
+        renderer.setVisibilityLayer('legend', null)
         if (colName === '' || !parser.parsedData.has(colName)) {
             // reset colors
-            renderer.setAllPointColors(1, 1, 0)
+            renderer.resetPointColors()
             legend.classList.add('hidden')
             return
         }
         toast.newMessage(`Coloring based off ${colName}`)
-        legendTitle.innerHTML = colName;
+        legendTitle.textContent = colName;
         const columnList = parser.parsedData.get(colName) as Float32Array
 
         const [min, max] = d3.extent(columnList) as [number, number];
@@ -409,33 +508,22 @@ function setupHeader(data: string[][]) {
         const rowMask = new Float32Array(columnList.length)
 
         if (uniqueCount > maxColorsOnScreen) { //color continuously
-            console.log(uniqueCount)
-            // const legend = document.querySelector('.legend') as HTMLDivElement;
             legend.classList.remove('hidden')
             legend.classList.add('continuous')
-            // createColorMap(columnList, selector);
             const colorScale = d3.scaleSequential(d3.interpolatePlasma).domain([min, max]);
-            const getColorMap = () => {
-                // The HTML preview for your UI
-                const previewHtml = d3.ticks(min, max, 14)
-                    .map(t => colorScale(t))
-                    .map(color => `
-                        <span style="
-                            background: ${color}; 
-                            height: 100%; 
-                            flex: 1; 
-                            display: inline-block;
-                        ">&nbsp;</span>
-                        `).join('');
-
-                return {
-                    scale: colorScale,
-                    preview: previewHtml
-                };
-            };
+            const previewHtml = d3.ticks(min, max, 14)
+                .map(t => colorScale(t))
+                .map(color => `
+                    <span style="
+                        background: ${color};
+                        height: 100%;
+                        flex: 1;
+                        display: inline-block;
+                    ">&nbsp;</span>
+                    `).join('');
 
             legendContent.innerHTML = `
-                <div class="legend-gradient">${getColorMap().preview}</div>
+                <div class="legend-gradient">${previewHtml}</div>
                 <div class="legend-range"><span>${d3.format('.3~g')(min)}</span><span>${d3.format('.3~g')(max)}</span></div>
                 `;
 
@@ -444,86 +532,119 @@ function setupHeader(data: string[][]) {
         } //end continuous
         legend.classList.remove('continuous')
 
+        // Sort the categories (numbers numerically, strings alphabetically) and
+        // color each row by its category's position in that order. Coloring by
+        // the raw value would bunch 0 and 10 together next to 100, and the
+        // legend labels wouldn't match.
+        const isDiscreteCol = parser.colTypes.get(colName) === 'string';
+        const categories: { key: number; label: string }[] = isDiscreteCol
+            ? Array.from(parser.invertedStrMap.get(colName)!, ([id, label]) => ({ key: id, label }))
+                .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+            : Array.from(parser.strColMap.get(colName)!.keys() as Iterable<number>)
+                .sort((a, b) => a - b)
+                // columnList is a Float32Array, so match on the float32 value
+                .map((value) => ({ key: Math.fround(value), label: String(value) }));
+        const numSteps = categories.length;
+        const rankOf = new Map(categories.map((c, rank) => [c.key, rank]));
+        const toAlpha = (rank: number) => numSteps > 1 ? rank / (numSteps - 1) : 0;
+
         for (let i = 0; i < columnList.length; i++) {
-            rowMask[i] = (columnList[i] - min) / (max - min)
+            rowMask[i] = toAlpha(rankOf.get(columnList[i]) ?? 0)
         }
 
         // TODO: Allow user to choose colormap argument for Lut (currently rainbow)
-        const colorMap = new Lut("rainbow", parser.uniques.get(colName))
+        const colorMap = new Lut("rainbow", numSteps)
 
         renderer.colorMapRowsDiscrete(rowMask, colorMap)
 
-        //Update legend
+        //Update legend. Each entry is a button that hides or shows its category.
         legend.classList.remove('hidden');
+        legendContent.replaceChildren()
+        const items = categories.map(({ label }, rank) => {
+            const item = document.createElement('button')
+            item.type = 'button'
+            item.className = 'legend-item'
+            item.title = 'Click to hide or show'
+            const swatch = document.createElement('span')
+            swatch.className = 'legend-color'
+            swatch.style.backgroundColor = `#${colorMap.getColor(toAlpha(rank)).getHexString()}`
+            const text = document.createElement('span')
+            text.className = 'legend-label'
+            text.textContent = label
+            item.append(swatch, text)
+            item.onclick = () => {
+                if (legendHidden.has(label)) legendHidden.delete(label)
+                else legendHidden.add(label)
+                applyLegend()
+            }
+            legendContent.appendChild(item)
+            return item
+        })
 
-        let numSteps = parser.uniques.get(colName)!;
-
-        const isDiscreteCol = parser.colTypes.get(colName) === 'string';
-        legendContent.innerHTML = ''
-
-        for (let i = 0; i < numSteps; i++) {
-            const alpha = i / (numSteps - 1);
-            // const value = (min + alpha * (max - min)).toFixed(2);  // Map back to real value
-            const color = colorMap.getColor(alpha);
-            const hex = `#${color.getHexString()}`;
-
-            const label = isDiscreteCol
-                ? parser.invertedStrMap.get(colName)?.get(i) ?? String(i)
-                : (min + alpha * (max - min)).toFixed(2);
-
-            legendContent.innerHTML += `
-                <div class="legend-item">
-                    <div class="legend-color" style="background-color: ${hex};"></div>
-                    <span class="legend-label">${label}</span>
-                </div>
-                `;
+        applyLegend = () => {
+            categories.forEach(({ label }, rank) => {
+                const off = legendHidden.has(label)
+                items[rank].classList.toggle('is-off', off)
+                items[rank].setAttribute('aria-pressed', String(!off))
+            })
+            if (legendHidden.size === 0) {
+                renderer.setVisibilityLayer('legend', null)
+                return
+            }
+            const hiddenRanks = new Set(categories.flatMap(({ label }, rank) => legendHidden.has(label) ? [rank] : []))
+            const mask = new Uint8Array(columnList.length)
+            for (let i = 0; i < columnList.length; i++) {
+                mask[i] = hiddenRanks.has(rankOf.get(columnList[i]) ?? 0) ? 0 : 1
+            }
+            renderer.setVisibilityLayer('legend', mask)
         }
-    })
+        applyLegend()
+    }
 
     // Axes
     const selectElX = document.getElementById('select-xaxis') as HTMLSelectElement
     selectElX.options.length = 0;
-    selectElX.addEventListener('change', () => {
+    selectElX.onchange = () => {
         const colName = selectElX.value
         if (colName === '' || !parser.parsedData.has(colName)) {
             // reset colors
-            renderer.setAllPointColors(1, 1, 0)
+            renderer.resetPointColors()
             return
         }
         const colArr = parser.parsedData.get(colName) as Float32Array
         renderer.setXColumn(colArr)
-    })
+    }
 
     const selectElY = document.getElementById('select-yaxis') as HTMLSelectElement
     selectElY.options.length = 0;
-    selectElY.addEventListener('change', () => {
+    selectElY.onchange = () => {
         const colName = selectElY.value
         if (colName === '' || !parser.parsedData.has(colName)) {
             // reset colors
-            renderer.setAllPointColors(1, 1, 0)
+            renderer.resetPointColors()
             return
         }
         const colArr = parser.parsedData.get(colName) as Float32Array
         renderer.setYColumn(colArr)
-    })
+    }
 
     // Z axis
     const selectElZ = document.getElementById('select-zaxis') as HTMLSelectElement;
     selectElZ.options.length = 0;
-    selectElZ.addEventListener('change', () => {
+    selectElZ.onchange = () => {
         const colName = selectElZ.value
         if (colName === '' || !parser.parsedData.has(colName)) {
             // reset colors
-            renderer.setAllPointColors(1, 1, 0)
+            renderer.resetPointColors()
             return
         }
         const colArr = parser.parsedData.get(colName) as Float32Array
         renderer.setZColumn(colArr)
-    })
+    }
 
     //Dimension switch
     const dimensionSelect = document.getElementById('dimension-switch') as HTMLSelectElement;
-    dimensionSelect.addEventListener('change', () => {
+    dimensionSelect.onchange = () => {
         const newDim = dimensionSelect.value
         const zCon = document.getElementById('z-axis-container') as HTMLDivElement
         if (newDim === '3D') {
@@ -534,9 +655,13 @@ function setupHeader(data: string[][]) {
         }
         else return;
         renderer.changeDimension(newDim)
-    })
+    }
 
-
+    // A blank option lets the coloring be switched off again
+    const noColor = document.createElement('option')
+    noColor.value = ''
+    noColor.textContent = 'None'
+    colorSelect.appendChild(noColor)
     cols.forEach((colName: string) => {
         createSelOption(colorSelect, colName)
         createSelOption(selectElX, colName)
@@ -546,8 +671,52 @@ function setupHeader(data: string[][]) {
     for (const sel of [colorSelect, selectElX, selectElY, selectElZ]) sel.disabled = false
 
     renderer.renderColumns()
-    renderer.setAllPointColors(1, 1, 0)
+    renderer.resetPointColors()
 
 }
 
-export { setupHeader }
+function selectEl(id: string): HTMLSelectElement {
+    return document.getElementById(id) as HTMLSelectElement
+}
+
+// Choose an option and run its change handler. Values the select doesn't have are skipped.
+function chooseOption(select: HTMLSelectElement, value: string) {
+    if (!Array.from(select.options).some((o) => o.value === value)) return;
+    select.value = value
+    select.dispatchEvent(new Event('change'))
+}
+
+export function getViewState(): ViewState {
+    const filterList = document.getElementById('filter-list') as HTMLDivElement;
+    return {
+        dimension: selectEl('dimension-switch').value,
+        x: selectEl('select-xaxis').value,
+        y: selectEl('select-yaxis').value,
+        z: selectEl('select-zaxis').value,
+        color: selectEl('color-select').value,
+        filters: Array.from(filterList.children, readFilterRow),
+        hiddenCategories: Array.from(legendHidden),
+    }
+}
+
+export function applyViewState(state: ViewState) {
+    // Filters first, so the axes are framed around the points they leave
+    const filterList = document.getElementById('filter-list') as HTMLDivElement;
+    filterList.replaceChildren()
+    for (const action of input.getActions()) {
+        if (action.group === 'Filters') input.unregisterAction(action.id)
+    }
+    state.filters.forEach((filter) => addFilterRow(filter))
+    applyFilters()
+
+    chooseOption(selectEl('dimension-switch'), state.dimension)
+    chooseOption(selectEl('select-xaxis'), state.x)
+    chooseOption(selectEl('select-yaxis'), state.y)
+    chooseOption(selectEl('select-zaxis'), state.z)
+    chooseOption(selectEl('color-select'), state.color)
+    legendHidden = new Set(state.hiddenCategories)
+    applyLegend()
+    renderer.fitToVisible()
+}
+
+export { setupHeader, chooseOption }

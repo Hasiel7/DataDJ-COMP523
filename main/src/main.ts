@@ -1,7 +1,11 @@
 import { initFileInput } from './fileHandler';
 import { animate } from './render';
+import * as renderer from './render';
 import { initDropdowns } from './header';
 import { initBoard } from './board';
+import { initFavorites } from './favorites';
+import { initTooltip } from './tooltip';
+import { initAxes } from './axes';
 import * as midi from './midi'
 import * as toast from './toast';
 
@@ -31,6 +35,7 @@ midi.init()
 // Header
 initDropdowns()
 initBoard()
+initFavorites()
 const inputEl: HTMLInputElement = document.getElementById("input-file") as HTMLInputElement;
 const fileNameEl = document.getElementById('file-name') as HTMLSpanElement;
 const emptyStateEl = document.getElementById('empty-state') as HTMLDivElement;
@@ -45,6 +50,19 @@ inputEl.addEventListener('change', async () => {
 )
 
 
+// Plot background, remembered in this browser
+const backgroundSelect = document.getElementById('background-select') as HTMLSelectElement;
+const setBackground = (mode: 'dark' | 'light') => {
+    document.body.classList.toggle('light-stage', mode === 'light');
+    renderer.setBackground(mode);
+    localStorage.setItem('datadj.background', mode);
+}
+backgroundSelect.value = localStorage.getItem('datadj.background') === 'light' ? 'light' : 'dark';
+setBackground(backgroundSelect.value as 'dark' | 'light');
+backgroundSelect.onchange = () => setBackground(backgroundSelect.value as 'dark' | 'light');
+
 // Rendering
 const canvas: HTMLCanvasElement = document.getElementById('canvas') as HTMLCanvasElement;
 animate(canvas)
+initTooltip(canvas)
+initAxes()
