@@ -1,7 +1,8 @@
 import Papa from 'papaparse';
 import {
     checkHealth,
-    createEmbedding,
+    getJobStatus,
+    submitJob,
     type Algorithm,
     type AlgorithmConfig,
     type DatasetMetadata,
@@ -32,6 +33,10 @@ const sourceStatus = element<HTMLSpanElement>('source-status');
 const resultStatus = element<HTMLDivElement>('result-status');
 const embeddingMetadata = element<HTMLDivElement>('embedding-metadata');
 const exportResult = element<HTMLDivElement>('export-result');
+const jobInstructions = element<HTMLDivElement>('job-instructions');
+const jobMessage = element<HTMLParagraphElement>('job-message');
+const workerCommand = element<HTMLElement>('worker-command');
+const jobArtifact = element<HTMLParagraphElement>('job-artifact');
 const errorMessage = element<HTMLDivElement>('error-message');
 const dimensions = element<HTMLInputElement>('dimensions');
 const dimensionsValue = element<HTMLOutputElement>('dimensions-value');
@@ -61,8 +66,8 @@ function setBusy(busy: boolean, operation: 'prepare' | 'generate'): void {
         generateButton.disabled = busy || loadedDataset === null;
         generateButton.classList.toggle('is-loading', busy);
         generateButton.innerHTML = busy
-            ? '<span class="button-spinner" aria-hidden="true"></span> Computing…'
-            : '<span class="generate-mark" aria-hidden="true">↓</span> Generate CSV';
+            ? '<span class="button-spinner" aria-hidden="true"></span> Queueing…'
+            : '<span class="generate-mark" aria-hidden="true">▶</span> Queue batch job';
     }
 }
 
@@ -274,7 +279,7 @@ function algorithmConfig(): AlgorithmConfig {
     };
 }
 
-async function generateEmbedding(): Promise<void> {
+async function queueBatchJob(): Promise<void> {
     if (!loadedDataset) return;
     setError(null);
     const randomSeed = Number(seedInput.value);
@@ -285,57 +290,74 @@ async function generateEmbedding(): Promise<void> {
     }
 
     setBusy(true, 'generate');
-    setStatus(resultStatus, 'Computing embedding');
+    setStatus(resultStatus, 'Submitting job');
     try {
-        const download = await createEmbedding({
+        const config = algorithmConfig();
+        const singleValueRange = (value: number) => ({
+            start: String(value),
+            stop: String(value),
+            step: '1',
+        });
+        const parameters: Record<string, ReturnType<typeof singleValueRange>> = {};
+        for (const [name, value] of Object.entries(config)) {
+            if (name !== 'algorithm' && name !== 'n_components') {
+                parameters[name] = singleValueRange(value);
+            }
+        }
+
+        const submitted = await submitJob({
             dataset_id: loadedDataset.dataset_id,
-            config: algorithmConfig(),
+            algorithms: { [config.algorithm]: parameters },
+            n_components: config.n_components,
             random_seed: randomSeed,
         });
-        const objectUrl = URL.createObjectURL(download.blob);
-        const anchor = document.createElement('a');
-        anchor.href = objectUrl;
-        anchor.download = download.filename;
-        document.body.append(anchor);
-        anchor.click();
-        anchor.remove();
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+
+        jobInstructions.classList.remove('hidden');
+        jobMessage.textContent = `Job ${submitted.job_id} is queued. Run the command below in a backend terminal.`;
+        workerCommand.textContent =
+            `Push-Location backend; uv run --project . python -m app.worker_cli ${submitted.job_id}; Pop-Location`;
+        jobArtifact.textContent = '';
         exportResult.classList.add('is-ready');
-        exportResult.querySelector('h3')!.textContent = 'Embedding CSV downloaded';
+        exportResult.querySelector('h3')!.textContent = 'Batch job queued';
         exportResult.querySelector('p')!.textContent =
-            'Open the visualization workflow and load this CSV to explore its embedding coordinates.';
-        renderEmbeddingMetadata(download.filename, download.embeddingId, loadedDataset, Number(dimensions.value));
-        setStatus(resultStatus, `${selectedAlgorithm().toUpperCase()} CSV ready`);
+            'The worker will compute the saved configuration and publish a ZIP containing the combined CSV and manifest.';
+        setStatus(resultStatus, 'Queued');
+        void pollJobStatus(submitted.job_id);
     } catch (error) {
-        setStatus(resultStatus, 'Computation failed');
-        setError(error instanceof Error ? error.message : 'Embedding computation failed.');
+        setStatus(resultStatus, 'Submission failed');
+        setError(error instanceof Error ? error.message : 'Job submission failed.');
     } finally {
         setBusy(false, 'generate');
     }
 }
 
-function renderEmbeddingMetadata(
-    filename: string,
-    embeddingId: string,
-    dataset: DatasetMetadata,
-    dimensionCount: number,
-): void {
-    embeddingMetadata.replaceChildren();
-    const values = [
-        ['File', filename],
-        ['Observations', dataset.observation_count.toLocaleString()],
-        ['Embedding dimensions', `${dimensionCount}D`],
-        ['Embedding ID', embeddingId || 'Unavailable'],
-    ];
-    for (const [label, value] of values) {
-        const item = document.createElement('div');
-        item.className = 'embedding-stat';
-        const caption = document.createElement('small');
-        caption.textContent = label;
-        const strong = document.createElement('strong');
-        strong.textContent = value;
-        item.append(caption, strong);
-        embeddingMetadata.append(item);
+function delay(milliseconds: number): Promise<void> {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+async function pollJobStatus(jobId: string): Promise<void> {
+    while (true) {
+        await delay(2500);
+        try {
+            const job = await getJobStatus(jobId);
+            setStatus(resultStatus, `${job.status.toUpperCase()} · ${job.job_id}`);
+
+            if (job.status === 'succeeded') {
+                jobMessage.textContent = 'Job completed successfully.';
+                jobArtifact.textContent = job.artifact_path
+                    ? `Package available on the backend machine: ${job.artifact_path}`
+                    : 'Job completed, but no artifact path was recorded.';
+                return;
+            }
+            if (job.status === 'failed' || job.status === 'cancelled') {
+                jobMessage.textContent = `Job finished with status: ${job.status}.`;
+                return;
+            }
+        } catch (error) {
+            setStatus(resultStatus, 'Status check failed');
+            setError(error instanceof Error ? error.message : 'Could not retrieve job status.');
+            return;
+        }
     }
 }
 
@@ -356,7 +378,7 @@ hasHeader.addEventListener('change', () => {
 });
 
 prepareButton.addEventListener('click', () => void prepareDataset());
-generateButton.addEventListener('click', () => void generateEmbedding());
+generateButton.addEventListener('click', () => void queueBatchJob());
 
 document.querySelectorAll<HTMLInputElement>('input[name="algorithm"]').forEach((radio) => {
     radio.addEventListener('change', () => setAlgorithmParameters(radio.value as Algorithm));

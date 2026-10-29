@@ -1,0 +1,4 @@
+/mnist_train.csv
+/dr_results_umap_tsne_phate.csv
+/backend/data/
+/main/temp/mnist_embeddings_all.csv

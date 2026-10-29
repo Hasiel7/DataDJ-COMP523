@@ -58,6 +58,36 @@ export interface EmbeddingRequest {
     random_seed: number;
 }
 
+export interface NumericRangeRequest {
+    start: string;
+    stop: string;
+    step: string;
+}
+
+export interface GridJobRequest {
+    dataset_id: string;
+    algorithms: Partial<Record<Algorithm, Record<string, NumericRangeRequest>>>;
+    n_components: 2 | 3;
+    random_seed: number;
+}
+
+export interface JobSubmissionResponse {
+    job_id: string;
+    status: 'queued';
+}
+
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface JobSummary {
+    job_id: string;
+    dataset_id: string;
+    status: JobStatus;
+    artifact_path: string | null;
+    created_at: string;
+    started_at: string | null;
+    finished_at: string | null;
+}
+
 export interface EmbeddingCsvDownload {
     blob: Blob;
     embeddingId: string;
@@ -81,6 +111,18 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function checkHealth(): Promise<{ status: 'ok' }> {
     return requestJson('/health');
+}
+
+export function submitJob(request: GridJobRequest): Promise<JobSubmissionResponse> {
+    return requestJson('/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+    });
+}
+
+export function getJobStatus(jobId: string): Promise<JobSummary> {
+    return requestJson(`/jobs/${encodeURIComponent(jobId)}`);
 }
 
 export function uploadDataset(

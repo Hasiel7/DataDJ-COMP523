@@ -68,6 +68,8 @@ header-row checkbox; when disabled, the first record is retained and columns are
 named `column_0`, `column_1`, and so on. For MNIST-style data with the label in
 the first column, choose `column_0` as the label column before preparing.
 
+Grid preview returns configs, per-algorithm counts, and the total run count. It does not execute reductions. Invalid ranges, parameters, sample constraints, or grids exceeding 25 total runs return 422; unknown datasets return 404.
+
 ## Test and Lint
 
 ```powershell

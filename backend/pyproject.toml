@@ -5,12 +5,14 @@ description = "FastAPI backend for Data DJ dimensionality reduction"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "alembic>=1.16,<2.0",
     "fastapi>=0.115,<1.0",
     "numpy>=2.2,<3.0",
     "pandas>=2.2,<4.0",
     "phate>=2.0,<3.0",
     "python-multipart>=0.0.20,<1.0",
     "scikit-learn>=1.6,<2.0",
+    "sqlalchemy>=2.0,<2.1",
     "umap-learn>=0.5.7,<0.6",
     "uvicorn[standard]>=0.34,<1.0",
 ]
