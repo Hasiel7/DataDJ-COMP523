@@ -118,6 +118,12 @@ export function parseData(data: string[][]) {
     })
 }
 
+// A text column with a different value in every row (e.g. a cell or sample id) can't be
+// plotted or colored usefully. It's still in the data, the filters and the tooltip.
+export function isIdColumn(colName: string): boolean {
+    return colTypes.get(colName) === 'string' && uniques.get(colName) === rows.length - 1
+}
+
 export function getColIndex(colName: string): number {
     for (let i = 0; i < columns.length; i++) {
         if (colName === columns[i])

@@ -22,70 +22,6 @@ function plasmaFor(background: 'dark' | 'light'): (t: number) => string {
     const [from, to] = background === 'light' ? [0, 0.7] : [0.3, 1];
     return (t) => d3.interpolatePlasma(from + t * (to - from));
 }
-// "a human can typically distinguish between 6 to 10 distinct colors" -Internet/Gemini
-// function createColorMap(data: Float32Array, selector: string): (v: number) => string {
-//     const min = d3.min(data) ?? 0;
-//     const max = d3.max(data) ?? 1;
-
-//     document.querySelector(selector)!.classList.remove('hidden')
-
-//     // 1. Create the Sequential Scale
-//     // Using interpolateTurbo to match the high-contrast rainbow in your image
-//     const colorScale = d3.scaleSequential<string>()
-//         .domain([min, max])
-//         .interpolator(d3.interpolateTurbo)
-//         .clamp(true);
-
-//     // 2. Setup Dimensions for Legend
-//     const width = 100;
-//     const height = 300;
-//     const margin = { top: 20, right: 50, bottom: 20, left: 10 };
-
-//     const svg = d3.select(selector)
-//         .append("svg")
-//         .attr("width", width + margin.left + margin.right)
-//         .attr("height", height + margin.top + margin.bottom)
-//         .append("g")
-//         .attr("transform", `translate(${margin.left},${margin.top})`);
-
-//     // 3. Define the Gradient
-//     const defs = svg.append("defs");
-//     const linearGradient = defs.append("linearGradient")
-//         .attr("id", "legend-gradient")
-//         .attr("x1", "0%").attr("y1", "100%") // Bottom (min)
-//         .attr("x2", "0%").attr("y2", "0%");   // Top (max)
-
-//     // Add color stops (every 10% for a smooth transition)
-//     const stops = 10;
-//     d3.range(stops).forEach(i => {
-//         const offset = i / (stops - 1);
-//         linearGradient.append("stop")
-//             .attr("offset", `${offset * 100}%`)
-//             .attr("stop-color", colorScale(min + (max - min) * offset));
-//     });
-
-//     // 4. Draw the Legend Rectangle
-//     svg.append("rect")
-//         .attr("width", 20)
-//         .attr("height", height)
-//         .style("fill", "url(#legend-gradient)");
-
-//     // 5. Add the Axis
-//     const axisScale = d3.scaleLinear()
-//         .domain([min, max])
-//         .range([height, 0]);
-
-//     const axis = d3.axisRight(axisScale)
-//         .ticks(5)
-//         .tickFormat(d3.format(".2f"));
-
-//     svg.append("g")
-//         .attr("transform", `translate(20, 0)`)
-//         .call(axis);
-
-//     return colorScale;
-// }
-
 function createSelOption(parent: HTMLSelectElement, colName: string) {
     const el = document.createElement("option") as HTMLOptionElement;
     el.value = el.textContent = colName;
@@ -111,7 +47,6 @@ function rotateSelectOption(selectElement: HTMLSelectElement, clockwise: boolean
 // Called once at startup; calling it again would add a second toggle
 // listener and each click would open and immediately close the dropdown.
 export function initDropdowns() {
-    // const dropdown = document.getElementById('filter-dropdown') as HTMLDivElement;
     document.querySelectorAll(".dropdown-container").forEach((container) => {
         const dropdown = container.querySelector(".dropdown") as HTMLDivElement
         const toggleBtn = container.querySelector('.main-btn') as HTMLButtonElement;
@@ -692,7 +627,10 @@ function setupHeader(data: string[][]) {
     noColor.value = ''
     noColor.textContent = 'None'
     colorSelect.appendChild(noColor)
-    cols.forEach((colName: string) => {
+    // ID columns are left out of the axis and color lists (unless that would leave nothing to plot)
+    const idFree = cols.filter((colName) => !parser.isIdColumn(colName))
+    const plottable = idFree.length > 0 ? idFree : cols
+    plottable.forEach((colName: string) => {
         createSelOption(colorSelect, colName)
         createSelOption(selectElX, colName)
         createSelOption(selectElY, colName)

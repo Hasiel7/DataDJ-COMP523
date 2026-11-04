@@ -10,6 +10,7 @@ import { initTooltip } from './tooltip';
 import { initAxes } from './axes';
 import * as midi from './midi'
 import * as toast from './toast';
+import * as auth from './auth';
 
 window.onerror = (msg) => {
     toast.newError(`Something went wrong: ${msg}`)
@@ -31,8 +32,13 @@ midi.onStatusChange((status, deviceName) => {
     midiStatusEl.dataset.state = status;
     midiStatusEl.textContent = deviceName ? `${label} · ${deviceName}` : label;
     midiStatusEl.title = tooltip;
+    // Bind buttons, Knobs and the board panel only make sense with a controller (see style.css)
+    document.body.classList.toggle('midi-connected', status === 'connected');
 })
 midi.init()
+
+// Hides the account area and Reduction lab links in builds with no API (see auth.hasBackend)
+document.body.classList.toggle('no-backend', !auth.hasBackend)
 
 // Header
 initDropdowns()

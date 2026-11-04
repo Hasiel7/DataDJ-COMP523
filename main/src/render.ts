@@ -19,11 +19,6 @@ export const pointsMaterial = new THREE.PointsMaterial({ size: window.devicePixe
 let pointsTransparency: number = 1; //between 0 and 1
 
 const decimalPlaces: number = 2;
-const cameraTopElement = document.getElementById('camera-top') as HTMLSpanElement;
-const cameraLeftElement = document.getElementById('camera-left') as HTMLSpanElement;
-const cameraBottomElement = document.getElementById('camera-bottom') as HTMLSpanElement;
-const cameraRightElement = document.getElementById('camera-right') as HTMLSpanElement;
-const formatter = new Intl.NumberFormat("en-US", { minimumFractionDigits: decimalPlaces, maximumFractionDigits: decimalPlaces })
 
 const mouseVector = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
@@ -37,10 +32,6 @@ const mouseRightElement = document.getElementById('mouse-right') as HTMLSpanElem
 
 let lastMouseDownX: number;
 let lastMouseDownY: number;
-
-// function setBackgroundColor(color: THREE.Color) {
-//     scene.background = color
-// }
 
 function floatEqual(x1: number, x2: number, epsilon: number = 0.000001): boolean {
     return Math.abs(x1 - x2) <= epsilon;
@@ -59,7 +50,6 @@ function animate(canvas: HTMLCanvasElement) {
             onMouseClick(ev)
         }
     })
-    // canvas.addEventListener('click', onMouseClick)
     const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
     // Draw at the screen's real resolution so points aren't blurry on Retina displays
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -92,7 +82,6 @@ function animate(canvas: HTMLCanvasElement) {
     // TODO: make a toast module
 
     renderer.setAnimationLoop(() => {
-        computeAndUpdateCamCoords()
         controls.update()
         renderer.render(scene, camera);
         frameListeners.forEach((listener) => listener())
@@ -148,35 +137,6 @@ function getXYFromMouse() {
     return worldMousePoint;
 }
 
-function computeAndUpdateCamCoords() {
-    let left: string, right: string, top: string, bottom: string;
-
-    const bounds = getViewBounds();
-    if (bounds) {
-        // Three.js zooms around the frustum's center, not around 0
-        left = round(bounds.left);
-        right = round(bounds.right);
-        top = round(bounds.top);
-        bottom = round(bounds.bottom);
-    } else if (camera instanceof THREE.PerspectiveCamera) {
-        // For perspective, compute visible world extents at Z=0 from camera position
-        const dist = Math.abs(camera.position.z);
-        const vFovRad = (camera.fov * Math.PI) / 180;
-        const halfH = Math.tan(vFovRad / 2) * dist;
-        const halfW = halfH * camera.aspect;
-
-        left = round(camera.position.x - halfW);
-        right = round(camera.position.x + halfW);
-        top = round(camera.position.y + halfH);
-        bottom = round(camera.position.y - halfH);
-    } else return;
-
-    cameraTopElement.textContent = top;
-    cameraLeftElement.textContent = left;
-    cameraRightElement.textContent = right;
-    cameraBottomElement.textContent = bottom;
-}
-
 export function updateCameraBounds(x: number = 0, y: number = 0) {
     panCamera(x, y);
 }
@@ -193,30 +153,6 @@ function panCamera(dx: number, dy: number) {
     }
 }
 
-function round(num: number): string {
-    return formatter.format(num)
-}
-
-// function addRandomPoints(count: number) {
-//     const posSize = 3;
-//     const colorSize = 4;
-//     const positions = new Float32Array(count * posSize); // x, y, z for each point
-//     const colors = new Float32Array(count * colorSize); // x, y, z for each point
-
-//     for (let i = 0; i < count; i++) {
-//         positions[i * posSize] = Math.random() * 10 - 5; // x
-//         positions[i * posSize + 1] = Math.random() * 10 - 5; // y
-//         positions[i * posSize + 2] = 0; // z (flat)
-//         colors[i * colorSize + 0] = Math.random(); // R
-//         colors[i * colorSize + 1] = Math.random(); // G
-//         colors[i * colorSize + 2] = Math.random(); // B
-//     }
-
-//     pointsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, posSize));
-//     pointsGeometry.setAttribute('color', new THREE.BufferAttribute(colors, colorSize));
-
-//     drawPoints()
-// }
 
 const coordsPerPoint = 3;
 const channelsPerColor = 4;
@@ -402,71 +338,6 @@ export function setZColumn(arr: ArrayLike<number>) {
     if (camera === perspCamera) frame3D();
 }
 
-// function setColumns(x: ArrayLike<number>, y: ArrayLike<number>) {
-//     if (x.length >= pointPositionsBuffer.length || y.length >= pointPositionsBuffer.length) throw new Error("Input array bigger than vertex buffer")
-//     if (x.length !== y.length) throw new Error("x and y columns are not the same length")
-
-//     for (let i = 0; i < x.length; i++) {
-//         pointPositionsBuffer[i * coordsPerPoint] = x[i];
-//         pointPositionsBuffer[i * coordsPerPoint + 1] = y[i];
-//     }
-//     pointsGeometry.getAttribute("position").needsUpdate = true;
-// }
-/**
- * Renders only the rows that are included in the array parameters.
- * The points in the specified rows are rendered in the specified color,
- * Every other point is rendered as the background color of the canvas.
- * @param rowMask Array boolean mask that should be colored according to @param selectedColor
- * @param selectedColor Color for selected points
- * @param unselectedColor Color for unselected points
- */
-function colorRows(rowMask: ArrayLike<boolean | number>, selectedColor: THREE.Color, unselectedColor: THREE.Color = scene.background as THREE.Color) {
-    if (rowMask.length * channelsPerColor !== pointColorsBuffer.length)
-        throw new Error(`Row mask should have the same number of rows as data. (${rowMask.length} * 3 != ${pointColorsBuffer.length})`)
-    for (let i = 0; i < rowMask.length; i++) {
-        if (rowMask[i]) {
-            if (selectedColor === undefined) continue;
-            pointColorsBuffer[i * channelsPerColor] = selectedColor.r
-            pointColorsBuffer[i * channelsPerColor + 1] = selectedColor.g
-            pointColorsBuffer[i * channelsPerColor + 2] = selectedColor.b
-            pointColorsBuffer[i * channelsPerColor + 3] = 1
-        }
-        else {
-            pointColorsBuffer[i * channelsPerColor] = unselectedColor.r
-            pointColorsBuffer[i * channelsPerColor + 1] = unselectedColor.g
-            pointColorsBuffer[i * channelsPerColor + 2] = unselectedColor.b
-            pointColorsBuffer[i * channelsPerColor + 3] = 0
-        }
-    }
-    pointsGeometry.getAttribute("color").needsUpdate = true;
-}
-
-/**
- * Color by indexing
- * Changes the color of rows that are included in the array parameters.
- * The points in the specified rows are rendered in the specified color,
- * Every other point is rendered as the background color of the canvas.
- * @param selectedRows Array of row indices that should be colored according to @param selectedColor
- * @param selectedColor Color for selected points
- */
-// function colorSelectedRows(selectedRows: ArrayLike<number>, selectedColor: THREE.Color, unselectedColor: THREE.Color = scene.background as THREE.Color) {
-//     const totalPoints = pointColorsBuffer.length / channelsPerColor;
-//     const selectedSet = new Set(Array.from(selectedRows));
-
-//     for (let i = 0; i < totalPoints; i++) {
-//         const color = selectedSet.has(i) ? selectedColor : unselectedColor;
-
-//         // Calculate base index once per iteration
-//         const baseIndex = i * channelsPerColor;
-
-//         pointColorsBuffer[baseIndex] = color.r;
-//         pointColorsBuffer[baseIndex + 1] = color.g;
-//         pointColorsBuffer[baseIndex + 2] = color.b;
-//     }
-
-//     pointsGeometry.getAttribute("color").needsUpdate = true;
-// }
-
 // categoryOfRow[i] is point i's category index; the category gets palette[index]
 export function colorMapRowsDiscrete(categoryOfRow: ArrayLike<number>, palette: readonly string[]) {
     usingDefaultColor = false;
@@ -490,7 +361,6 @@ export function colorMapRowsContinuous(rowData: ArrayLike<number>, colorScale: d
         pointColorsBuffer[i * channelsPerColor] = color.r / 255; // R
         pointColorsBuffer[i * channelsPerColor + 1] = color.g / 255; // G
         pointColorsBuffer[i * channelsPerColor + 2] = color.b / 255; //B
-        // pointColorsBuffer[i * channelsPerColor + 3] = 1; //opacity
     }
 
     // 5. Signal the GPU to upload the new data
@@ -539,34 +409,6 @@ function renderColumns() {
 function clearPoints() {
     scene.clear()
 }
-
-/**
- * Renders the columns which are each given as a list of numbers
- * @param x column to be rendered on the x-axis
- * @param y column to be rendered on the y-axis
-*/
-
-// function renderPoints(x: ArrayLike<number>, y: ArrayLike<number>) {
-//     // TODO: Add number coloring functionality to this function?
-//     if (x.length !== y.length) throw new Error("x and y columns are not the same length")
-
-//     for (let i = 0; i < x.length; i++) {
-//         pointPositionsBuffer[i * coordsPerPoint] = x[i];
-//         pointPositionsBuffer[i * coordsPerPoint + 1] = y[i];
-//         // Would probably have to set the x and y before clicking a render button and rendering it.
-
-
-//         // What happens if I don't set the values under here
-//         pointPositionsBuffer[i * coordsPerPoint + 2] = 0;
-//         // z value (all points should be on xy plane)
-//         pointColorsBuffer[i * channelsPerColor] = 1; // R
-//         pointColorsBuffer[i * channelsPerColor + 1] = 1; // G
-//         pointColorsBuffer[i * channelsPerColor + 2] = 0; //B
-//     }
-//     pointsGeometry.setAttribute("position", new THREE.BufferAttribute(pointPositionsBuffer, coordsPerPoint))
-//     pointsGeometry.setAttribute("color", new THREE.BufferAttribute(pointColorsBuffer, channelsPerColor))
-//     drawPoints()
-// }
 
 function drawPoints() {
     const points = new THREE.Points(pointsGeometry, pointsMaterial)
@@ -625,8 +467,4 @@ export function moveCameraDown(delta: number) {
     panCamera(0, -delta);
 }
 
-
-
-// function translateCamera(distanceX: number, distanceY: number){}
-
-export { animate, clearPoints, colorRows, initDrawData, setAllPointColors, renderColumns }
+export { animate, clearPoints, initDrawData, setAllPointColors, renderColumns }

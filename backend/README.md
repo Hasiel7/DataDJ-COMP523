@@ -127,7 +127,9 @@ hard execution timeout; reliable timeouts require isolated jobs or worker
 processes.
 ## Accounts and Favorites
 
-The visualizer's favorites are saved per user when signed in. Create or update
+The visualizer's favorites are saved per user when signed in. The explorer only
+shows Sign in and the Reduction lab link when it is built or served with
+`VITE_API_BASE_URL` set (locally, `http://127.0.0.1:8000/api`). Create or update
 the database tables before starting the API (safe to run repeatedly):
 
 ```powershell

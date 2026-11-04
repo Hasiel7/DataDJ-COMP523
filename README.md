@@ -24,8 +24,10 @@ main/                     # Existing Vite + TypeScript frontend
 ```
 
 The frontend currently lives in `main/` and is already initialized with Vite,
-TypeScript, and `package-lock.json`. It is deliberately left in place because
-its existing GitHub Pages configuration depends on that directory. The intended
+TypeScript, and `package-lock.json`. Its build output, `main/dist/`, is not
+tracked in git: `npm --prefix main run build` produces it for GitHub Pages
+(served under `/DataDJ/`), and `VITE_BASE=/` builds it for hosts that serve
+from the root, such as Vercel. The intended
 monorepo pairing for now is `backend/` plus `main/`; no frontend framework or
 additional frontend dependency is needed for the backend milestones.
 

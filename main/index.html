@@ -38,13 +38,13 @@
         </div>
 
         <div class="topbar-right">
-          <div class="account">
+          <div class="account backend-only">
             <button id="sign-in-btn" class="main-btn" type="button">Sign in</button>
             <span id="account-email" class="account-email hidden"></span>
             <button id="sign-out-btn" class="main-btn hidden" type="button">Sign out</button>
           </div>
           <span id="midi-status" class="midi-status" data-state="pending">MIDI</span>
-          <a href="./reduction.html" class="reduction-link">Reduction lab <span aria-hidden="true">↗</span></a>
+          <a href="./reduction.html" class="reduction-link backend-only">Reduction lab <span aria-hidden="true">↗</span></a>
         </div>
       </div>
 
@@ -94,7 +94,7 @@
             <div class="dropdown hidden">
               <p class="dropdown-hint" id="runs-summary"></p>
               <div id="run-pickers"></div>
-              <div class="picker-row">
+              <div class="picker-row midi-only">
                 <div class="text">Step through all runs</div>
                 <button id="run-step-bind" class="bind-btn" type="button">Bind</button>
               </div>
@@ -119,7 +119,7 @@
               <button class="main-btn" type="button">Favorites <span aria-hidden="true">▾</span></button>
               <div class="dropdown hidden">
                 <div id="favorites-list"></div>
-                <div class="picker-row">
+                <div class="picker-row midi-only">
                   <div class="text">Step through favorites</div>
                   <button id="favorites-step-bind" class="bind-btn" type="button">Bind</button>
                 </div>
@@ -133,7 +133,7 @@
             <option value="dark">Dark</option>
             <option value="light">Light</option>
           </select>
-          <div class="dropdown-container">
+          <div class="dropdown-container midi-only">
             <button id="knobs-btn" class="main-btn" type="button">Knobs <span aria-hidden="true">▾</span></button>
             <div class="dropdown dropdown-right hidden">
               <p class="dropdown-hint">Click Bind, then turn a knob on your controller.</p>
@@ -180,7 +180,7 @@
         <h1>Open a CSV to plot it</h1>
         <p>Each row becomes a dot. Pick which columns go on each axis and which one sets the color.</p>
         <label class="file-btn file-btn-large" for="input-file"><span class="file-btn-action">Open CSV</span></label>
-        <p class="empty-hint">Got lots of columns? Squash them first in the <a href="./reduction.html">Reduction lab</a>.</p>
+        <p class="empty-hint backend-only">Got lots of columns? Squash them first in the <a href="./reduction.html">Reduction lab</a>.</p>
       </div>
 
       <div class="legend hidden">
@@ -188,14 +188,7 @@
         <div class="legend-content"></div>
       </div>
 
-      <div class="camera-config" aria-label="Camera position">
-        <!-- The axes show the view's edges now; these stay for render.ts but aren't shown -->
-        <dl hidden>
-          <dt>Top</dt><dd id="camera-top"></dd>
-          <dt>Bottom</dt><dd id="camera-bottom"></dd>
-          <dt>Left</dt><dd id="camera-left"></dd>
-          <dt>Right</dt><dd id="camera-right"></dd>
-        </dl>
+      <div class="camera-config" aria-label="Mouse position">
         <span class="mouse-readout">(<span id="mouse-left">–</span>, <span id="mouse-right">–</span>)</span>
       </div>
 

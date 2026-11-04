@@ -16,6 +16,10 @@ interface AuthResponse {
 
 // Same API as the Reduction Lab (reduction-api.ts)
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api';
+
+// The fallback above is for local dev. A build without VITE_API_BASE_URL (the hosted
+// demo) has no API behind it, so signing in and the Reduction lab would only fail there.
+export const hasBackend = Boolean(import.meta.env.VITE_API_BASE_URL);
 const TOKEN_KEY = 'datadj.auth.token';
 const USER_KEY = 'datadj.auth.user';
 

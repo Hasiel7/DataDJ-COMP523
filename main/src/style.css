@@ -249,7 +249,16 @@ select:hover:not(:disabled) { border-color: var(--accent); }
   .bind-btn[data-state="waiting"], .cycle[data-state="waiting"] { animation: none; }
 }
 
-/* MIDI status */
+/* MIDI-only controls wait for a connected controller (main.ts sets body.midi-connected).
+   Matching on class means Bind buttons created later (filter rows, run pickers) follow too. */
+body:not(.midi-connected) :is(.bind-btn, .cycle, .midi-only, .board-panel) { display: none !important; }
+
+/* Account and Reduction lab need the API, which only builds with VITE_API_BASE_URL have (main.ts) */
+body.no-backend .backend-only { display: none !important; }
+
+/* MIDI status: shown only once a controller is connected */
+.midi-status:not([data-state="connected"]) { display: none; }
+
 .midi-status {
   display: inline-flex;
   align-items: center;
@@ -568,17 +577,6 @@ select:hover:not(:disabled) { border-color: var(--accent); }
   font-size: 11px;
   pointer-events: none;
 }
-
-.camera-config dl {
-  margin: 0;
-  display: grid;
-  grid-template-columns: auto auto;
-  column-gap: 12px;
-  row-gap: 2px;
-}
-
-.camera-config dt { opacity: 0.6; }
-.camera-config dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Axis ticks over the 2D view */
 .axes {

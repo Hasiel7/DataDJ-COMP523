@@ -4,3 +4,4 @@
 /main/temp/mnist_embeddings_all.csv
 node_modules/
 .DS_Store
+/main/dist/
