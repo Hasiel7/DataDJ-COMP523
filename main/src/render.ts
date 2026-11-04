@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { newMessage } from './toast';
-import { Lut } from 'three/addons/math/Lut.js';
 import * as d3 from 'd3';
 
 
@@ -246,6 +245,7 @@ function initDrawData(length: number) {
     pointColorsBuffer = new Float32Array(length * channelsPerColor); // x, y, z for each point
     visibleMask = new Uint8Array(length).fill(1);
     visibilityLayers.clear();
+    zValues = null;
 }
 
 // Pass null to remove the layer
@@ -381,12 +381,24 @@ export function setYColumn(arr: ArrayLike<number>) {
     if (camera === perspCamera) frame3D();
 }
 
+// The chosen Z column. Only used in 3D: the 2D camera sits at z = 2 and doesn't
+// draw anything behind it, so in 2D every point stays at z = 0.
+let zValues: ArrayLike<number> | null = null;
+
+function writeZ() {
+    if (!pointPositionsBuffer) return;
+    const use = camera === perspCamera ? zValues : null;
+    for (let i = 0; i < pointCount(); i++) {
+        pointPositionsBuffer[i * coordsPerPoint + 2] = use ? use[i] : 0;
+    }
+    const positions = pointsGeometry.getAttribute("position");
+    if (positions) positions.needsUpdate = true;
+}
+
 export function setZColumn(arr: ArrayLike<number>) {
     if (arr.length >= pointPositionsBuffer.length) throw new Error("Input array bigger than vertex buffer");
-    for (let i = 0; i < arr.length; i++) {
-        pointPositionsBuffer[i * coordsPerPoint + 2] = arr[i];
-    }
-    pointsGeometry.getAttribute("position").needsUpdate = true;
+    zValues = arr;
+    writeZ();
     if (camera === perspCamera) frame3D();
 }
 
@@ -455,12 +467,12 @@ function colorRows(rowMask: ArrayLike<boolean | number>, selectedColor: THREE.Co
 //     pointsGeometry.getAttribute("color").needsUpdate = true;
 // }
 
-export function colorMapRowsDiscrete(colorValues: ArrayLike<number>, colorMap: Lut) {
-    // if (colorValues.length * channelsPerColor !== pointColorsBuffer.length)
-    //     throw new Error(`Row mask should have the same number of rows as data. (${colorValues.length * 3} * 3 != ${pointColorsBuffer.length})`)
+// categoryOfRow[i] is point i's category index; the category gets palette[index]
+export function colorMapRowsDiscrete(categoryOfRow: ArrayLike<number>, palette: readonly string[]) {
     usingDefaultColor = false;
-    for (let i = 0; i < colorValues.length; i++) {
-        const color = colorMap.getColor(colorValues[i])
+    const colors = palette.map((css) => new THREE.Color(css));
+    for (let i = 0; i < categoryOfRow.length; i++) {
+        const color = colors[categoryOfRow[i] % colors.length]
         pointColorsBuffer[i * channelsPerColor] = color.r
         pointColorsBuffer[i * channelsPerColor + 1] = color.g
         pointColorsBuffer[i * channelsPerColor + 2] = color.b
@@ -494,7 +506,14 @@ export function resetPointColors() {
     usingDefaultColor = true;
 }
 
+let backgroundMode: 'dark' | 'light' = 'dark';
+
+export function getBackground(): 'dark' | 'light' {
+    return backgroundMode;
+}
+
 export function setBackground(mode: 'dark' | 'light') {
+    backgroundMode = mode;
     scene.background = new THREE.Color(mode === 'light' ? 0xffffff : 0x0f1d1a);
     defaultPointColor = mode === 'light' ? [0.08, 0.17, 0.15] : [1, 1, 0];
     if (usingDefaultColor && pointColorsBuffer) resetPointColors();
@@ -582,10 +601,12 @@ export function changeDimension(dim: string) {
         controls.enableRotate = false;
         // The 3D view moved the shared orbit target; put it back under the 2D camera
         controls.target.set(orthoCamera.position.x, orthoCamera.position.y, 0);
+        writeZ(); // flatten
     } else if (dim === '3D') {
         camera = perspCamera;
         controls.object = perspCamera;
         controls.enableRotate = true;
+        writeZ(); // lift the points to the Z column
         if (pointPositionsBuffer) frame3D();
     }
     controls.update();

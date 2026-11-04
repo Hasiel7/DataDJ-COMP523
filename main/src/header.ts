@@ -1,11 +1,23 @@
 import * as renderer from './render';
 import * as toast from './toast';
 import * as parser from './file';
-import { Lut } from 'three/addons/math/Lut.js';
 import * as input from './inputManager';
 import * as d3 from 'd3';
 
 const maxColorsOnScreen = 10;
+// Category colors for discrete columns; one per category, so it must hold maxColorsOnScreen
+const categoryPalette = d3.schemeTableau10;
+
+// Cell-cycle phases in biological order. When every category of a column is one
+// of these, the legend follows this order instead of the alphabet (S before G2M).
+const cellCycleOrder = new Map([['G0', 0], ['G1', 1], ['S', 2], ['G2M', 3], ['G2/M', 3], ['M', 4]]);
+
+// Plasma's dark end vanishes on the dark background and its yellow end on white,
+// so use only the part of it that stands out from the current background
+function plasmaFor(background: 'dark' | 'light'): (t: number) => string {
+    const [from, to] = background === 'light' ? [0, 0.7] : [0.3, 1];
+    return (t) => d3.interpolatePlasma(from + t * (to - from));
+}
 // "a human can typically distinguish between 6 to 10 distinct colors" -Internet/Gemini
 // function createColorMap(data: Float32Array, selector: string): (v: number) => string {
 //     const min = d3.min(data) ?? 0;
@@ -237,6 +249,8 @@ let applyFilters: () => void = () => { };
 let applyLegend: () => void = () => { };
 // Labels of the legend categories that are hidden
 let legendHidden = new Set<string>();
+// Column the legend was last built for, so recoloring the same column keeps hidden categories
+let coloredBy = '';
 
 function initColumnCycleActions() {
     const cycles: { id: string; label: string; select: string; button: string; message: string }[] = [
@@ -483,12 +497,14 @@ function setupHeader(data: string[][]) {
     const legendTitle = legend.querySelector('.legend-title') as HTMLDivElement
     const legendContent = legend.querySelector('.legend-content') as HTMLDivElement
     legend.classList.add('hidden') // initDrawData already dropped the old file's legend layer
+    coloredBy = ''
 
     // onchange (not addEventListener) so loading another file replaces the handler
     colorSelect.onchange = () => {
         const colName = colorSelect.value
-        // A new coloring starts with every category shown
-        legendHidden = new Set()
+        // A new coloring starts with every category shown; redrawing the same one keeps them
+        if (colName !== coloredBy) legendHidden = new Set()
+        coloredBy = colName
         applyLegend = () => { }
         renderer.setVisibilityLayer('legend', null)
         if (colName === '' || !parser.parsedData.has(colName)) {
@@ -510,7 +526,8 @@ function setupHeader(data: string[][]) {
         if (uniqueCount > maxColorsOnScreen) { //color continuously
             legend.classList.remove('hidden')
             legend.classList.add('continuous')
-            const colorScale = d3.scaleSequential(d3.interpolatePlasma).domain([min, max]);
+            // The legend gradient below is drawn from this same scale, so it matches the points
+            const colorScale = d3.scaleSequential(plasmaFor(renderer.getBackground())).domain([min, max]);
             const previewHtml = d3.ticks(min, max, 14)
                 .map(t => colorScale(t))
                 .map(color => `
@@ -532,30 +549,30 @@ function setupHeader(data: string[][]) {
         } //end continuous
         legend.classList.remove('continuous')
 
-        // Sort the categories (numbers numerically, strings alphabetically) and
-        // color each row by its category's position in that order. Coloring by
-        // the raw value would bunch 0 and 10 together next to 100, and the
-        // legend labels wouldn't match.
+        // Sort the categories (numbers numerically, strings alphabetically, cell-cycle
+        // phases biologically) and give category i color i of the palette. The points
+        // and the legend both use this order, so they always match.
         const isDiscreteCol = parser.colTypes.get(colName) === 'string';
+        const phaseRank = (label: string) => cellCycleOrder.get(label.trim().toUpperCase());
         const categories: { key: number; label: string }[] = isDiscreteCol
             ? Array.from(parser.invertedStrMap.get(colName)!, ([id, label]) => ({ key: id, label }))
-                .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
             : Array.from(parser.strColMap.get(colName)!.keys() as Iterable<number>)
                 .sort((a, b) => a - b)
                 // columnList is a Float32Array, so match on the float32 value
                 .map((value) => ({ key: Math.fround(value), label: String(value) }));
-        const numSteps = categories.length;
+        if (isDiscreteCol) {
+            const isPhases = categories.every(({ label }) => phaseRank(label) !== undefined)
+            categories.sort(isPhases
+                ? (a, b) => phaseRank(a.label)! - phaseRank(b.label)!
+                : (a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+        }
         const rankOf = new Map(categories.map((c, rank) => [c.key, rank]));
-        const toAlpha = (rank: number) => numSteps > 1 ? rank / (numSteps - 1) : 0;
 
         for (let i = 0; i < columnList.length; i++) {
-            rowMask[i] = toAlpha(rankOf.get(columnList[i]) ?? 0)
+            rowMask[i] = rankOf.get(columnList[i]) ?? 0
         }
 
-        // TODO: Allow user to choose colormap argument for Lut (currently rainbow)
-        const colorMap = new Lut("rainbow", numSteps)
-
-        renderer.colorMapRowsDiscrete(rowMask, colorMap)
+        renderer.colorMapRowsDiscrete(rowMask, categoryPalette)
 
         //Update legend. Each entry is a button that hides or shows its category.
         legend.classList.remove('hidden');
@@ -567,7 +584,7 @@ function setupHeader(data: string[][]) {
             item.title = 'Click to hide or show'
             const swatch = document.createElement('span')
             swatch.className = 'legend-color'
-            swatch.style.backgroundColor = `#${colorMap.getColor(toAlpha(rank)).getHexString()}`
+            swatch.style.backgroundColor = categoryPalette[rank % categoryPalette.length]
             const text = document.createElement('span')
             text.className = 'legend-label'
             text.textContent = label
@@ -684,6 +701,12 @@ function chooseOption(select: HTMLSelectElement, value: string) {
     if (!Array.from(select.options).some((o) => o.value === value)) return;
     select.value = value
     select.dispatchEvent(new Event('change'))
+}
+
+// Redraw the current coloring, e.g. after the background changes. Hidden categories stay hidden.
+export function recolor() {
+    const colorSelect = selectEl('color-select')
+    if (!colorSelect.disabled && colorSelect.value) colorSelect.dispatchEvent(new Event('change'))
 }
 
 export function getViewState(): ViewState {

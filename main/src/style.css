@@ -276,6 +276,88 @@ select:hover:not(:disabled) { border-color: var(--accent); }
 .midi-status[data-state="unsupported"],
 .midi-status[data-state="denied"] { color: var(--signal); border-color: var(--signal); }
 
+/* Account */
+.account { display: flex; align-items: center; gap: 8px; }
+
+.account-email {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Dialogs (sign in, copy favorites) */
+.modal {
+  width: min(380px, calc(100vw - 32px));
+  padding: 20px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+.modal::backdrop { background: rgba(15, 29, 26, 0.55); }
+.modal form { display: grid; gap: 12px; }
+.modal h2 { margin: 0; font-size: 18px; font-weight: 800; }
+.modal-text { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+
+.modal-field { display: grid; gap: 4px; font-size: 12px; font-weight: 600; }
+
+.modal-field input {
+  height: 34px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: white;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.modal-field input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.auth-hint { margin: -6px 0 0; font-size: 12px; color: var(--muted); }
+
+.auth-error {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--signal);
+  background: #fbe9e4;
+  border: 1px solid var(--signal);
+  border-radius: 6px;
+}
+
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+.primary-btn {
+  height: 30px;
+  padding: 0 14px;
+  color: white;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.primary-btn:hover:not(:disabled) { background: var(--accent-dark); border-color: var(--accent-dark); }
+
+.auth-switch-row { margin: 0; font-size: 12px; color: var(--muted); text-align: center; }
+
+.link-btn {
+  padding: 0;
+  color: var(--accent-dark);
+  background: none;
+  border: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
 .reduction-link {
   color: var(--ink);
   text-decoration: none;

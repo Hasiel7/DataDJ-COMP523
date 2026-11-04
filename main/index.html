@@ -30,6 +30,11 @@
         </label>
 
         <div class="topbar-right">
+          <div class="account">
+            <button id="sign-in-btn" class="main-btn" type="button">Sign in</button>
+            <span id="account-email" class="account-email hidden"></span>
+            <button id="sign-out-btn" class="main-btn hidden" type="button">Sign out</button>
+          </div>
           <span id="midi-status" class="midi-status" data-state="pending">MIDI</span>
           <a href="./reduction.html" class="reduction-link">Reduction lab <span aria-hidden="true">↗</span></a>
         </div>
@@ -188,6 +193,39 @@
 
       <div id="toast" class="hidden" role="status"></div>
     </main>
+
+    <dialog id="auth-dialog" class="modal" aria-labelledby="auth-title">
+      <form method="dialog" novalidate>
+        <h2 id="auth-title" class="auth-title">Sign in</h2>
+        <p class="modal-text">Your favorites are saved to your account, so they follow you to other browsers.</p>
+        <label class="modal-field">
+          <span>Email</span>
+          <input name="email" type="email" autocomplete="email" required>
+        </label>
+        <label class="modal-field">
+          <span>Password</span>
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <p class="auth-hint hidden">At least 8 characters.</p>
+        <p class="auth-error hidden" role="alert"></p>
+        <div class="modal-actions">
+          <button class="auth-cancel main-btn" type="button">Cancel</button>
+          <button class="auth-submit primary-btn" type="submit">Sign in</button>
+        </div>
+        <p class="auth-switch-row"><span class="auth-switch-text">New to Data DJ?</span> <button class="auth-switch link-btn" type="button">Create an account</button></p>
+      </form>
+    </dialog>
+
+    <dialog id="copy-favorites-dialog" class="modal" aria-labelledby="copy-favorites-title">
+      <form method="dialog">
+        <h2 id="copy-favorites-title">Copy your favorites?</h2>
+        <p class="modal-text">This browser has <strong data-count></strong> saved while you were signed out. Copy them into your account? They'll also stay in this browser.</p>
+        <div class="modal-actions">
+          <button class="main-btn" value="skip">Not now</button>
+          <button class="primary-btn" value="copy">Copy to account</button>
+        </div>
+      </form>
+    </dialog>
   </div>
 </body>
 
