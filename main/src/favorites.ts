@@ -158,10 +158,15 @@ async function saveCurrent() {
     const name = autoName(run, view);
     saveBtn.disabled = true;
     try {
-        await withStore((store) => store.save({ file: fileName, name, run, view }));
+        const { store } = await withStore((s) => s.save({ file: fileName, name, run, view }));
         saveBtn.textContent = '★';
         window.setTimeout(() => { saveBtn.textContent = '☆'; }, 1200);
-        toast.newMessage(`Saved favorite: ${name}`);
+        // Signed in but the server is unreachable: say so on every save, not just the first
+        if (store === localStore && auth.getUser()) {
+            toast.newError(`Saved in this browser only, not your account (can't reach the server): ${name}`);
+        } else {
+            toast.newMessage(`Saved favorite: ${name}`);
+        }
     } catch (error) {
         reportError(error);
     } finally {

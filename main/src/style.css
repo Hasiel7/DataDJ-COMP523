@@ -480,7 +480,8 @@ select:hover:not(:disabled) { border-color: var(--accent); }
 
 .favorite-row { display: flex; align-items: center; gap: 6px; }
 
-.favorite-open {
+.favorite-open,
+.sample-item {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -496,9 +497,9 @@ select:hover:not(:disabled) { border-color: var(--accent); }
   font-size: 13px;
 }
 
-.favorite-open span { font-weight: 600; overflow-wrap: anywhere; }
-.favorite-open small { font-family: var(--mono); font-size: 11px; color: var(--muted); }
-.favorite-open:hover { border-color: var(--accent); background: var(--accent-soft); }
+.favorite-open span, .sample-item span { font-weight: 600; overflow-wrap: anywhere; }
+.favorite-open small, .sample-item small { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.favorite-open:hover, .sample-item:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
 
 .delete-btn {
   width: 28px;
@@ -710,7 +711,7 @@ select:hover:not(:disabled) { border-color: var(--accent); }
   border-radius: 4px;
 }
 
-.legend .legend-item:hover { background: var(--accent-soft); }
+.legend button.legend-item:hover { background: var(--accent-soft); }
 /* Hidden category: hollow dot, struck-through label */
 .legend .legend-item.is-off .legend-color { background: transparent !important; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .legend .legend-item.is-off .legend-label { color: var(--muted); text-decoration: line-through; }

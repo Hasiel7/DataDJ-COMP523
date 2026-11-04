@@ -8,6 +8,10 @@ const maxColorsOnScreen = 10;
 // Category colors for discrete columns; one per category, so it must hold maxColorsOnScreen
 const categoryPalette = d3.schemeTableau10;
 
+// Points whose color cell is blank (parsed as NaN) get this color and a "(blank)" legend entry
+const blankColor = '#9a9a9a';
+const blankLabel = '(blank)';
+
 // Cell-cycle phases in biological order. When every category of a column is one
 // of these, the legend follows this order instead of the alphabet (S before G2M).
 const cellCycleOrder = new Map([['G0', 0], ['G1', 1], ['S', 2], ['G2M', 3], ['G2/M', 3], ['M', 4]]);
@@ -522,12 +526,13 @@ function setupHeader(data: string[][]) {
         const uniqueCount = parser.uniques.get(colName) as number
 
         const rowMask = new Float32Array(columnList.length)
+        const hasBlanks = columnList.some(Number.isNaN)
 
         if (uniqueCount > maxColorsOnScreen) { //color continuously
             legend.classList.remove('hidden')
             legend.classList.add('continuous')
             // The legend gradient below is drawn from this same scale, so it matches the points
-            const colorScale = d3.scaleSequential(plasmaFor(renderer.getBackground())).domain([min, max]);
+            const colorScale = d3.scaleSequential(plasmaFor(renderer.getBackground())).domain([min, max]).unknown(blankColor);
             const previewHtml = d3.ticks(min, max, 14)
                 .map(t => colorScale(t))
                 .map(color => `
@@ -542,6 +547,7 @@ function setupHeader(data: string[][]) {
             legendContent.innerHTML = `
                 <div class="legend-gradient">${previewHtml}</div>
                 <div class="legend-range"><span>${d3.format('.3~g')(min)}</span><span>${d3.format('.3~g')(max)}</span></div>
+                ${hasBlanks ? `<div class="legend-item"><span class="legend-color" style="background: ${blankColor}"></span><span class="legend-label">${blankLabel}</span></div>` : ''}
                 `;
 
             renderer.colorMapRowsContinuous(columnList, colorScale);
@@ -566,13 +572,20 @@ function setupHeader(data: string[][]) {
                 ? (a, b) => phaseRank(a.label)! - phaseRank(b.label)!
                 : (a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
         }
+        // Each category's own color, then gray for blanks as the last entry
+        const palette = categories.map((_, rank) => categoryPalette[rank % categoryPalette.length])
+        if (hasBlanks) {
+            categories.push({ key: NaN, label: blankLabel })
+            palette.push(blankColor)
+        }
+        // Map keys compare NaN equal to NaN, so blank rows find the blank entry
         const rankOf = new Map(categories.map((c, rank) => [c.key, rank]));
 
         for (let i = 0; i < columnList.length; i++) {
             rowMask[i] = rankOf.get(columnList[i]) ?? 0
         }
 
-        renderer.colorMapRowsDiscrete(rowMask, categoryPalette)
+        renderer.colorMapRowsDiscrete(rowMask, palette)
 
         //Update legend. Each entry is a button that hides or shows its category.
         legend.classList.remove('hidden');
@@ -584,7 +597,7 @@ function setupHeader(data: string[][]) {
             item.title = 'Click to hide or show'
             const swatch = document.createElement('span')
             swatch.className = 'legend-color'
-            swatch.style.backgroundColor = categoryPalette[rank % categoryPalette.length]
+            swatch.style.backgroundColor = palette[rank]
             const text = document.createElement('span')
             text.className = 'legend-label'
             text.textContent = label

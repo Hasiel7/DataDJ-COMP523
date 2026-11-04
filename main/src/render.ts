@@ -480,7 +480,7 @@ export function colorMapRowsDiscrete(categoryOfRow: ArrayLike<number>, palette: 
     pointsGeometry.getAttribute("color").needsUpdate = true;
 }
 
-export function colorMapRowsContinuous(rowData: ArrayLike<number>, colorScale: d3.ScaleSequential<any>) {
+export function colorMapRowsContinuous(rowData: ArrayLike<number>, colorScale: d3.ScaleSequential<any, any>) {
     usingDefaultColor = false;
     for (let i = 0; i < rowData.length; i++) {
         // Map the raw value from the domain to a color string

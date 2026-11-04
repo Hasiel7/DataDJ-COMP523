@@ -1,4 +1,5 @@
-import { initFileInput } from './fileHandler';
+import { loadFile } from './fileHandler';
+import { initSamples } from './samples';
 import { animate } from './render';
 import * as renderer from './render';
 import { initDropdowns, recolor } from './header';
@@ -41,15 +42,22 @@ initAccount()
 const inputEl: HTMLInputElement = document.getElementById("input-file") as HTMLInputElement;
 const fileNameEl = document.getElementById('file-name') as HTMLSpanElement;
 const emptyStateEl = document.getElementById('empty-state') as HTMLDivElement;
-inputEl.addEventListener('change', async () => {
-    toast.newMessage('Loading file...')
-    await initFileInput(inputEl)
+async function openFile(file: File) {
+    // Stays up until the file is drawn; large files take longer than a normal toast
+    toast.newMessage('Loading file...', 60_000)
+    await loadFile(file)
     toast.closeToast()
-    const fileName = inputEl.files?.[0]?.name ?? ''
-    fileNameEl.textContent = fileNameEl.title = fileName
+    fileNameEl.textContent = fileNameEl.title = file.name
     emptyStateEl.classList.add('hidden')
 }
-)
+inputEl.addEventListener('change', async () => {
+    const file = inputEl.files?.[0]
+    if (!file) return
+    // Cleared so choosing the same file again (e.g. after a sample) still fires change
+    inputEl.value = ''
+    await openFile(file)
+})
+initSamples(openFile)
 
 
 // Plot background, remembered in this browser

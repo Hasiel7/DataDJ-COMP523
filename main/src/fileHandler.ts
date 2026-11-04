@@ -3,25 +3,16 @@ import { setupHeader } from './header';
 import { initRuns } from './runs';
 import { setFavoritesFile } from './favorites';
 
-export async function initFileInput(inputEl: HTMLInputElement) {
-    if (!inputEl) {
-        throw new Error("Input file is not in document")
-    }
-
-    if (!inputEl.files || inputEl.files.length < 1) {
-        throw new Error("File missing")
-    }
-    const file = inputEl.files[0]
-
+// Open CSV and the sample menu both load through here
+export async function loadFile(file: File) {
     if (!file.name.endsWith('.csv')) {
         throw new Error("File must be a CSV.")
     }
 
-    await parseCSV(file).then((data: string[][]) => {
-        setupHeader(data)
-        initRuns()
-        setFavoritesFile(file.name)
-    });
+    const data: string[][] = await parseCSV(file)
+    setupHeader(data)
+    initRuns()
+    setFavoritesFile(file.name)
 }
 
 function parseCSV(file: File): Promise<any[]> {
