@@ -115,3 +115,60 @@ def test_execution_plan_migration_preserves_legacy_jobs(tmp_path: Path) -> None:
     finally:
         config.attributes.pop("connection", None)
         engine.dispose()
+
+def test_users_and_favorites_migration_cascades_deletes(tmp_path: Path) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    config = Config(str(backend / "alembic.ini"))
+    engine = create_database_engine(tmp_path / "users.sqlite3")
+
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "7c2f4e1a9b3d")
+
+        with engine.begin() as connection:
+            assert {"users", "favorites"} <= set(inspect(connection).get_table_names())
+            connection.execute(
+                text(
+                    "INSERT INTO users (id, email, password_hash, created_at) "
+                    "VALUES (:id, 'dj@example.com', 'hash', '2026-10-29 00:00:00')"
+                ),
+                {"id": "1" * 32},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO favorites "
+                    "(id, user_id, file_name, name, payload, created_at) "
+                    "VALUES (:id, :user_id, 'mnist.csv', 'one', '{}', '2026-10-29 00:00:00')"
+                ),
+                {"id": "2" * 32, "user_id": "1" * 32},
+            )
+
+        with pytest.raises(IntegrityError, match="UNIQUE constraint failed"):
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO users (id, email, password_hash, created_at) "
+                        "VALUES (:id, 'dj@example.com', 'hash', '2026-10-29 00:00:00')"
+                    ),
+                    {"id": "3" * 32},
+                )
+
+        with engine.begin() as connection:
+            connection.execute(text("DELETE FROM users"))
+            assert connection.execute(
+                text("SELECT COUNT(*) FROM favorites")
+            ).scalar_one() == 0
+
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "110584f0d749")
+
+        with engine.connect() as connection:
+            tables = set(inspect(connection).get_table_names())
+            assert "users" not in tables
+            assert "favorites" not in tables
+            assert "jobs" in tables
+    finally:
+        config.attributes.pop("connection", None)
+        engine.dispose()

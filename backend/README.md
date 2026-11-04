@@ -125,3 +125,26 @@ directory is git-ignored. Uploads are limited to 200 MiB and at most 100,000
 observations may be selected. These synchronous safeguards do not provide a
 hard execution timeout; reliable timeouts require isolated jobs or worker
 processes.
+## Accounts and Favorites
+
+The visualizer's favorites are saved per user when signed in. Create or update
+the database tables before starting the API (safe to run repeatedly):
+
+```powershell
+uv run --directory backend alembic upgrade head
+```
+
+- `POST /api/auth/register` and `POST /api/auth/login` take `{email, password}`
+	(password at least 8 characters) and return `{access_token, user}`. A failed
+	login always says "Invalid email or password".
+- `GET /api/auth/me` returns the signed-in user. Send the token as
+	`Authorization: Bearer <token>`; tokens last 7 days.
+- `GET /api/favorites?file=<name>`, `POST /api/favorites`, and
+	`DELETE /api/favorites/{id}` act only on the signed-in user's favorites.
+
+Environment variables:
+
+- `DATA_DJ_JWT_SECRET` signs the tokens. Without it the API logs a warning and
+	uses a development-only secret; always set it outside local development.
+- `DATA_DJ_CORS_ORIGINS` adds comma-separated browser origins, such as the
+	GitHub Pages site (`https://<user>.github.io`), to the local Vite origins.

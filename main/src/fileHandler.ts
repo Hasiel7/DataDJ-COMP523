@@ -1,5 +1,7 @@
 import Papa from 'papaparse'
 import { setupHeader } from './header';
+import { initRuns } from './runs';
+import { setFavoritesFile } from './favorites';
 
 export async function initFileInput(inputEl: HTMLInputElement) {
     if (!inputEl) {
@@ -17,6 +19,8 @@ export async function initFileInput(inputEl: HTMLInputElement) {
 
     await parseCSV(file).then((data: string[][]) => {
         setupHeader(data)
+        initRuns()
+        setFavoritesFile(file.name)
     });
 }
 

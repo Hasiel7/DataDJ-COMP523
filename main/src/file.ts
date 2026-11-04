@@ -16,6 +16,8 @@ export const invertedStrMap: Map<string, Map<number, string>> = new Map();
 export const uniques: Map<string, number> = new Map();
 // Col name => # of unique values in col
 export let columns: string[];
+// The CSV as parsed, header row first. Point i is rows[i + 1].
+export let rows: string[][] = [];
 export const indices: Map<string, Map<number, Float32Array>> = new Map();
 //list of indexes 
 // column => cell value => list of all row indices where col[*] = cell value
@@ -27,7 +29,11 @@ export function parseData(data: string[][]) {
     // TODO: check if each value in a column are all the same type (string or number)
     // 2D array of csv file, csv[row][column]
     // First row will have column names
-    columns = data[0]
+    // Start clean so columns from a previously loaded file don't linger
+    for (const map of [parsedData, colTypes, strColMap, invertedStrMap, uniques, indices, dependents]) map.clear()
+    rows = data
+    // A blank header cell (e.g. pandas' unnamed index column) can't be selected, so give it a name
+    columns = data[0].map((name, i) => name.trim() === '' ? `column_${i}` : name)
     for (let i = 0; i < columns.length; i++) {
         const colName = columns[i]
 
