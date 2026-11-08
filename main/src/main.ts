@@ -1,4 +1,5 @@
-import { loadFile } from './fileHandler';
+import { loadFile, loadOriginalFile, getOriginalData, matchOriginalRows } from './fileHandler';
+import * as parser from './file';
 import { initSamples } from './samples';
 import { animate } from './render';
 import * as renderer from './render';
@@ -11,6 +12,8 @@ import { initAxes } from './axes';
 import * as midi from './midi'
 import * as toast from './toast';
 import * as auth from './auth';
+import { or } from 'three/tsl';
+import { updateOriginalColorOptions } from './header';
 
 window.onerror = (msg) => {
     toast.newError(`Something went wrong: ${msg}`)
@@ -64,6 +67,159 @@ inputEl.addEventListener('change', async () => {
     await openFile(file)
 })
 initSamples(openFile)
+
+const originalColumnSearch = document.getElementById('original-column-search') as HTMLInputElement;
+const originalColumnList = document.getElementById('original-column-list') as HTMLDivElement;
+
+let originalColumnNames: string[] = [];
+const selectedOriginalColumns = new Set<string>();
+
+function updateOriginalColumnOptions(searchText: string = '') {
+    originalColumnList.replaceChildren();
+
+    const matches = originalColumnNames.filter(name =>
+        name.toLowerCase().includes(searchText.toLowerCase().trim())
+    );
+
+    if (matches.length === 0) {
+        const message = document.createElement('div');
+        message.textContent = 'No matching columns';
+        originalColumnList.appendChild(message);
+        return;
+    }
+
+    for (const name of matches) {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.textContent = name;
+        option.className = 'original-column-option';
+        option.setAttribute('role', 'option');
+        option.setAttribute('aria-selected', String(selectedOriginalColumns.has(name)));
+
+        
+        option.addEventListener('click', () => {
+            if (selectedOriginalColumns.has(name)) {
+                selectedOriginalColumns.delete(name);
+            } else {
+                selectedOriginalColumns.add(name);
+            }
+
+            const selectedLabel = document.getElementById('original-column-selected');
+
+            if (selectedLabel) {
+                selectedLabel.textContent =
+                    `${selectedOriginalColumns.size} column(s) selected`;
+            }
+
+            updateOriginalColumnOptions(originalColumnSearch.value);
+            syncOriginalColorOptions();
+        });
+
+        originalColumnList.appendChild(option);
+    }
+}
+
+function syncOriginalColorOptions() {
+    updateOriginalColorOptions(Array.from(selectedOriginalColumns));
+}
+
+function validateOriginalRowMatching() {
+    const original = getOriginalData();
+
+    if (!original || parser.rows.length < 2) {
+        return;
+    }
+
+    const labelIndex = parser.columns.indexOf('label');
+
+    if (labelIndex === -1) {
+        console.log('No processed label column available for validation.');
+        return;
+    }
+
+    const matchedRows = matchOriginalRows(parser.rows, 'index');
+    const originalLabelIndex = 0;
+
+    let matches = 0;
+
+    for (let i = 0; i < matchedRows.length; i++) {
+        const processedLabel = parser.rows[i + 1][labelIndex];
+        const originalLabel = original[matchedRows[i] + 1][originalLabelIndex];
+
+        if (processedLabel.trim() === originalLabel.trim()) {
+            matches++;
+        }
+    }
+
+    console.log(
+        `Original row matching: ${matches}/${matchedRows.length} labels matched`
+    );
+}
+
+originalColumnSearch.addEventListener('input', () => {
+    updateOriginalColumnOptions(originalColumnSearch.value);
+});
+const clearOriginalColumnsButton = document.getElementById('original-column-clear') as HTMLButtonElement;
+
+clearOriginalColumnsButton.addEventListener('click', () => {
+    selectedOriginalColumns.clear();
+
+    const selectedLabel = document.getElementById('original-column-selected');
+
+    if (selectedLabel) {
+        selectedLabel.textContent = 'Selected: None';
+    }
+
+    updateOriginalColumnOptions(originalColumnSearch.value);
+    syncOriginalColorOptions();
+});
+
+const originalInputEl = document.getElementById('original-input-file') as HTMLInputElement;
+const originalFileNameEl = document.getElementById('original-file-name') as HTMLSpanElement;
+
+originalInputEl.addEventListener('change', async () => {
+    const file = originalInputEl.files?.[0];
+    if (!file) return;
+
+    originalInputEl.value = '';
+
+    try {
+        const hasHeaders = (
+            document.getElementById('original-has-headers') as HTMLInputElement
+        ).checked;
+        const rowCount = await loadOriginalFile(file, hasHeaders);
+
+        
+        const data = getOriginalData();
+
+        if (data) {
+            originalColumnNames = data[0];
+            selectedOriginalColumns.clear();
+            const selectedLabel = document.getElementById('original-column-selected');
+
+            if (selectedLabel) {
+                selectedLabel.textContent = 'Selected: None';
+            }
+
+            originalColumnSearch.value = '';
+            originalColumnSearch.disabled = false;
+
+            updateOriginalColumnOptions();
+            syncOriginalColorOptions();
+            validateOriginalRowMatching();
+        }
+
+
+        originalFileNameEl.textContent = file.name;
+        originalFileNameEl.title = file.name;
+
+        toast.newMessage(`Original dataset loaded: ${rowCount} rows`);
+    } catch (error) {
+        toast.newError(
+            error instanceof Error ? error.message : 'Could not load original dataset.'
+        );
+    }
+});
 
 
 // Plot background, remembered in this browser

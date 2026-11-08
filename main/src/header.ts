@@ -1,6 +1,7 @@
 import * as renderer from './render';
 import * as toast from './toast';
 import * as parser from './file';
+import { getOriginalData, matchOriginalRows } from './fileHandler';
 import * as input from './inputManager';
 import * as d3 from 'd3';
 
@@ -441,12 +442,23 @@ function setupHeader(data: string[][]) {
     // onchange (not addEventListener) so loading another file replaces the handler
     colorSelect.onchange = () => {
         const colName = colorSelect.value
+        const isOriginalColumn = colName.startsWith('original:');
+
+    if (isOriginalColumn) {
+        const originalColumnName = colName.slice('original:'.length);
+        const originalValues = getMatchedOriginalColumn(originalColumnName);
+
+        console.log(
+            `Original column "${originalColumnName}":`,
+            originalValues.slice(0, 10)
+        );
+    }
         // A new coloring starts with every category shown; redrawing the same one keeps them
         if (colName !== coloredBy) legendHidden = new Set()
         coloredBy = colName
         applyLegend = () => { }
         renderer.setVisibilityLayer('legend', null)
-        if (colName === '' || !parser.parsedData.has(colName)) {
+        if (colName === '' || (!isOriginalColumn && !parser.parsedData.has(colName))) {
             // reset colors
             renderer.resetPointColors()
             legend.classList.add('hidden')
@@ -454,11 +466,15 @@ function setupHeader(data: string[][]) {
         }
         toast.newMessage(`Coloring based off ${colName}`)
         legendTitle.textContent = colName;
-        const columnList = parser.parsedData.get(colName) as Float32Array
+        const columnList = isOriginalColumn
+            ? getMatchedOriginalColumn(colName.slice('original:'.length))
+            : parser.parsedData.get(colName) as Float32Array;
 
         const [min, max] = d3.extent(columnList) as [number, number];
 
-        const uniqueCount = parser.uniques.get(colName) as number
+        const uniqueCount = isOriginalColumn
+            ? new Set(Array.from(columnList).filter(value => !Number.isNaN(value))).size
+            : parser.uniques.get(colName) as number;
 
         const rowMask = new Float32Array(columnList.length)
         const hasBlanks = columnList.some(Number.isNaN)
@@ -494,13 +510,23 @@ function setupHeader(data: string[][]) {
         // phases biologically) and give category i color i of the palette. The points
         // and the legend both use this order, so they always match.
         const isDiscreteCol = parser.colTypes.get(colName) === 'string';
-        const phaseRank = (label: string) => cellCycleOrder.get(label.trim().toUpperCase());
-        const categories: { key: number; label: string }[] = isDiscreteCol
-            ? Array.from(parser.invertedStrMap.get(colName)!, ([id, label]) => ({ key: id, label }))
-            : Array.from(parser.strColMap.get(colName)!.keys() as Iterable<number>)
+        const originalNumericCategories = isOriginalColumn
+            ? Array.from(new Set(columnList))
+                .filter(value => !Number.isNaN(value))
                 .sort((a, b) => a - b)
-                // columnList is a Float32Array, so match on the float32 value
-                .map((value) => ({ key: Math.fround(value), label: String(value) }));
+                .map(value => ({
+                    key: value,
+                    label: String(value)
+                }))
+            : [];
+        const phaseRank = (label: string) => cellCycleOrder.get(label.trim().toUpperCase());
+        const categories: { key: number; label: string }[] = isOriginalColumn
+            ? originalNumericCategories
+            : isDiscreteCol
+                ? Array.from(parser.invertedStrMap.get(colName)!, ([id, label]) => ({ key: id, label }))
+                : Array.from(parser.strColMap.get(colName)!.keys() as Iterable<number>)
+                    .sort((a, b) => a - b)
+                    .map((value) => ({ key: Math.fround(value), label: String(value) }));
         if (isDiscreteCol) {
             const isPhases = categories.every(({ label }) => phaseRank(label) !== undefined)
             categories.sort(isPhases
@@ -694,3 +720,55 @@ export function applyViewState(state: ViewState) {
 }
 
 export { setupHeader, chooseOption }
+
+export function updateOriginalColorOptions(columnNames: string[]) {
+    const colorSelect = document.getElementById('color-select') as HTMLSelectElement;
+
+    // Remove previously added original-column options.
+    colorSelect.querySelectorAll('option[data-original-column]').forEach(option => {
+        option.remove();
+    });
+
+    // Add the currently selected original columns.
+    for (const name of columnNames) {
+        const option = document.createElement('option');
+
+        option.value = `original:${name}`;
+        option.textContent = `${name} (original)`;
+        option.dataset.originalColumn = 'true';
+
+        // Coloring isn't connected until row matching is implemented.
+        option.disabled = false;
+
+        colorSelect.appendChild(option);
+    }
+}
+
+
+function getMatchedOriginalColumn(columnName: string): Float32Array {
+    const original = getOriginalData();
+
+    if (!original) {
+        throw new Error('No original dataset loaded.');
+    }
+
+    const columnIndex = original[0].indexOf(columnName);
+
+    if (columnIndex === -1) {
+        throw new Error(`Original column "${columnName}" not found.`);
+    }
+
+    const matchedRows = matchOriginalRows(parser.rows, 'index');
+    const values = new Float32Array(matchedRows.length);
+
+    for (let i = 0; i < matchedRows.length; i++) {
+        const originalRow = original[matchedRows[i] + 1];
+        const rawValue = originalRow[columnIndex];
+
+        values[i] = rawValue.trim() === ''
+            ? NaN
+            : Number(rawValue);
+    }
+
+    return values;
+}

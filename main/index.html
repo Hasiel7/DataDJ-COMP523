@@ -29,6 +29,46 @@
           <span id="file-name" class="file-name">No file loaded</span>
         </label>
 
+        <details id="original-data-panel">
+          <summary class="file-btn-action">Original Data</summary>
+        
+          <div class="original-data-settings">
+            <label class="file-btn" for="original-input-file">
+              <input type="file" accept=".csv" id="original-input-file">
+              <span class="file-btn-action">Upload Original CSV</span>
+              <span id="original-file-name" class="file-name">No original data loaded</span>
+            </label>
+        
+            <label for="original-has-headers">
+              <input type="checkbox" id="original-has-headers" checked>
+              First row contains headers
+            </label>
+        
+            <div id="original-column-container">
+              <label for="original-column-search">Color by original column:</label>
+              <div class="original-column-selection-header">
+                <div id="original-column-selected" aria-live="polite">
+                  Selected: None
+                </div>
+              
+                <button type="button" id="original-column-clear">
+                  Clear All
+                </button>
+              </div>
+            
+              <input type="search" id="original-column-search" placeholder="Search columns..." autocomplete="off" disabled>
+            
+              <div id="original-column-list" role="listbox" aria-label="Original dataset columns">
+                <div class="original-column-placeholder">
+                  Upload an original dataset to see its columns.
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </details>
+
+
         <div class="dropdown-container">
           <button class="main-btn" type="button">Samples <span aria-hidden="true">▾</span></button>
           <div class="dropdown hidden">
