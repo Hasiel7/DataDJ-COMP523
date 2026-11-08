@@ -11,6 +11,7 @@ type OriginalColumnData = {
     categories: Map<number, string>;
 };
 const maxColorsOnScreen = 10;
+const maxCategoricalValues = 50;
 // Category colors for discrete columns; one per category, so it must hold maxColorsOnScreen
 const categoryPalette = d3.schemeTableau10;
 
@@ -493,6 +494,22 @@ function setupHeader(data: string[][]) {
             ? new Set(Array.from(columnList).filter(value => !Number.isNaN(value))).size
             : parser.uniques.get(colName) as number;
 
+        const isCategoricalColumn =
+            originalColumnData?.isCategorical === true ||
+            parser.colTypes.get(colName) === 'string';
+
+        if (isCategoricalColumn && uniqueCount > maxCategoricalValues) {
+            toast.newError(
+                `Column "${colName}" has ${uniqueCount} unique categories. Maximum supported is ${maxCategoricalValues}.`
+            );
+
+            renderer.resetPointColors();
+            legend.classList.add('hidden');
+            colorSelect.value = '';
+            coloredBy = '';
+            return;
+        }
+                
         const rowMask = new Float32Array(columnList.length)
         const hasBlanks = columnList.some(Number.isNaN)
 
