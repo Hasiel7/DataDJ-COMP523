@@ -5,6 +5,11 @@ import { getOriginalData, matchOriginalRows } from './fileHandler';
 import * as input from './inputManager';
 import * as d3 from 'd3';
 
+type OriginalColumnData = {
+    values: Float32Array;
+    isCategorical: boolean;
+    categories: Map<number, string>;
+};
 const maxColorsOnScreen = 10;
 // Category colors for discrete columns; one per category, so it must hold maxColorsOnScreen
 const categoryPalette = d3.schemeTableau10;
@@ -444,15 +449,6 @@ function setupHeader(data: string[][]) {
         const colName = colorSelect.value
         const isOriginalColumn = colName.startsWith('original:');
 
-    if (isOriginalColumn) {
-        const originalColumnName = colName.slice('original:'.length);
-        const originalValues = getMatchedOriginalColumn(originalColumnName);
-
-        console.log(
-            `Original column "${originalColumnName}":`,
-            originalValues.slice(0, 10)
-        );
-    }
         // A new coloring starts with every category shown; redrawing the same one keeps them
         if (colName !== coloredBy) legendHidden = new Set()
         coloredBy = colName
@@ -466,8 +462,29 @@ function setupHeader(data: string[][]) {
         }
         toast.newMessage(`Coloring based off ${colName}`)
         legendTitle.textContent = colName;
-        const columnList = isOriginalColumn
-            ? getMatchedOriginalColumn(colName.slice('original:'.length))
+        let originalColumnData: OriginalColumnData | null = null;
+
+        if (isOriginalColumn) {
+            try {
+                originalColumnData = getMatchedOriginalColumn(
+                    colName.slice('original:'.length)
+                );
+            } catch (error) {
+                const message = error instanceof Error
+                    ? error.message
+                    : 'Unable to match the original dataset.';
+
+                toast.newError(message);
+                renderer.resetPointColors();
+                legend.classList.add('hidden');
+                colorSelect.value = '';
+                coloredBy = '';
+                return;
+            }
+        }
+
+        const columnList = originalColumnData
+            ? originalColumnData.values
             : parser.parsedData.get(colName) as Float32Array;
 
         const [min, max] = d3.extent(columnList) as [number, number];
@@ -479,7 +496,7 @@ function setupHeader(data: string[][]) {
         const rowMask = new Float32Array(columnList.length)
         const hasBlanks = columnList.some(Number.isNaN)
 
-        if (uniqueCount > maxColorsOnScreen) { //color continuously
+        if (uniqueCount > maxColorsOnScreen && !originalColumnData?.isCategorical) { //color continuously
             legend.classList.remove('hidden')
             legend.classList.add('continuous')
             // The legend gradient below is drawn from this same scale, so it matches the points
@@ -509,7 +526,9 @@ function setupHeader(data: string[][]) {
         // Sort the categories (numbers numerically, strings alphabetically, cell-cycle
         // phases biologically) and give category i color i of the palette. The points
         // and the legend both use this order, so they always match.
-        const isDiscreteCol = parser.colTypes.get(colName) === 'string';
+        const isDiscreteCol =
+            originalColumnData?.isCategorical === true ||
+            parser.colTypes.get(colName) === 'string';
         const originalNumericCategories = isOriginalColumn
             ? Array.from(new Set(columnList))
                 .filter(value => !Number.isNaN(value))
@@ -521,7 +540,9 @@ function setupHeader(data: string[][]) {
             : [];
         const phaseRank = (label: string) => cellCycleOrder.get(label.trim().toUpperCase());
         const categories: { key: number; label: string }[] = isOriginalColumn
-            ? originalNumericCategories
+            ? originalColumnData?.isCategorical
+                ? Array.from(originalColumnData.categories, ([key, label]) => ({ key, label }))
+                : originalNumericCategories
             : isDiscreteCol
                 ? Array.from(parser.invertedStrMap.get(colName)!, ([id, label]) => ({ key: id, label }))
                 : Array.from(parser.strColMap.get(colName)!.keys() as Iterable<number>)
@@ -737,7 +758,6 @@ export function updateOriginalColorOptions(columnNames: string[]) {
         option.textContent = `${name} (original)`;
         option.dataset.originalColumn = 'true';
 
-        // Coloring isn't connected until row matching is implemented.
         option.disabled = false;
 
         colorSelect.appendChild(option);
@@ -745,7 +765,7 @@ export function updateOriginalColorOptions(columnNames: string[]) {
 }
 
 
-function getMatchedOriginalColumn(columnName: string): Float32Array {
+function getMatchedOriginalColumn(columnName: string): OriginalColumnData {
     const original = getOriginalData();
 
     if (!original) {
@@ -760,15 +780,38 @@ function getMatchedOriginalColumn(columnName: string): Float32Array {
 
     const matchedRows = matchOriginalRows(parser.rows, 'index');
     const values = new Float32Array(matchedRows.length);
+    const isCategorical = matchedRows.some(rowIndex => {
+        const rawValue = original[rowIndex + 1][columnIndex].trim();
+
+        return rawValue !== '' && !Number.isFinite(Number(rawValue));
+    });
+    const categories = new Map<number, string>();
+    const categoryIds = new Map<string, number>();
 
     for (let i = 0; i < matchedRows.length; i++) {
         const originalRow = original[matchedRows[i] + 1];
-        const rawValue = originalRow[columnIndex];
+        const rawValue = originalRow[columnIndex].trim();
 
-        values[i] = rawValue.trim() === ''
-            ? NaN
-            : Number(rawValue);
+        if (rawValue === '') {
+            values[i] = NaN;
+        } else if (isCategorical) {
+            let categoryId = categoryIds.get(rawValue);
+
+            if (categoryId === undefined) {
+                categoryId = categoryIds.size;
+                categoryIds.set(rawValue, categoryId);
+                categories.set(categoryId, rawValue);
+            }
+
+            values[i] = categoryId;
+        } else {
+            values[i] = Number(rawValue);
+        }
     }
 
-    return values;
+    return {
+        values,
+        isCategorical,
+        categories
+    };
 }

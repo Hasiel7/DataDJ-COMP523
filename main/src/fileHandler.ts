@@ -77,10 +77,23 @@ export function matchOriginalRows(
         throw new Error('No original dataset has been uploaded.');
     }
 
-    const idColumnIndex = processedData[0].indexOf(idColumn);
+    const possibleIdColumns = [
+    idColumn,
+    'index',
+    'original_index',
+    'row_index',
+    'row_id',
+    'sample_id'
+    ];
+
+    const idColumnIndex = processedData[0].findIndex(
+        column => possibleIdColumns.includes(column.trim().toLowerCase())
+    );
 
     if (idColumnIndex === -1) {
-        throw new Error(`Processed dataset is missing the "${idColumn}" column.`);
+        throw new Error(
+            `Processed dataset must contain a row ID column, such as "index", "row_id", or "sample_id".`
+        );
     }
 
     const originalRowCount = originalData.length - 1;

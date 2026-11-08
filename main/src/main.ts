@@ -1,9 +1,8 @@
-import { loadFile, loadOriginalFile, getOriginalData, matchOriginalRows } from './fileHandler';
-import * as parser from './file';
+import { loadFile, loadOriginalFile, getOriginalData } from './fileHandler';
 import { initSamples } from './samples';
 import { animate } from './render';
 import * as renderer from './render';
-import { initDropdowns, recolor } from './header';
+import { initDropdowns, recolor, updateOriginalColorOptions } from './header';
 import { initBoard } from './board';
 import { initFavorites } from './favorites';
 import { initAccount } from './account';
@@ -12,8 +11,6 @@ import { initAxes } from './axes';
 import * as midi from './midi'
 import * as toast from './toast';
 import * as auth from './auth';
-import { or } from 'three/tsl';
-import { updateOriginalColorOptions } from './header';
 
 window.onerror = (msg) => {
     toast.newError(`Something went wrong: ${msg}`)
@@ -58,6 +55,18 @@ async function openFile(file: File) {
     toast.closeToast()
     fileNameEl.textContent = fileNameEl.title = file.name
     emptyStateEl.classList.add('hidden')
+
+    // Reset original-column selections when a new processed CSV is loaded.
+    selectedOriginalColumns.clear();
+
+    const selectedLabel = document.getElementById('original-column-selected');
+
+    if (selectedLabel) {
+        selectedLabel.textContent = 'Selected: None';
+    }
+
+    updateOriginalColumnOptions(originalColumnSearch.value);
+    syncOriginalColorOptions();
 }
 inputEl.addEventListener('change', async () => {
     const file = inputEl.files?.[0]
@@ -123,38 +132,6 @@ function syncOriginalColorOptions() {
     updateOriginalColorOptions(Array.from(selectedOriginalColumns));
 }
 
-function validateOriginalRowMatching() {
-    const original = getOriginalData();
-
-    if (!original || parser.rows.length < 2) {
-        return;
-    }
-
-    const labelIndex = parser.columns.indexOf('label');
-
-    if (labelIndex === -1) {
-        console.log('No processed label column available for validation.');
-        return;
-    }
-
-    const matchedRows = matchOriginalRows(parser.rows, 'index');
-    const originalLabelIndex = 0;
-
-    let matches = 0;
-
-    for (let i = 0; i < matchedRows.length; i++) {
-        const processedLabel = parser.rows[i + 1][labelIndex];
-        const originalLabel = original[matchedRows[i] + 1][originalLabelIndex];
-
-        if (processedLabel.trim() === originalLabel.trim()) {
-            matches++;
-        }
-    }
-
-    console.log(
-        `Original row matching: ${matches}/${matchedRows.length} labels matched`
-    );
-}
 
 originalColumnSearch.addEventListener('input', () => {
     updateOriginalColumnOptions(originalColumnSearch.value);
@@ -206,7 +183,6 @@ originalInputEl.addEventListener('change', async () => {
 
             updateOriginalColumnOptions();
             syncOriginalColorOptions();
-            validateOriginalRowMatching();
         }
 
 
