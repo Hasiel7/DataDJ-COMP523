@@ -2,7 +2,8 @@ import * as parser from './file';
 import * as renderer from './render';
 import * as input from './inputManager';
 import * as toast from './toast';
-import { chooseOption } from './header';
+import { chooseOption, setupHeader } from './header';
+import { getBatchRun, type BatchCatalog, type BatchManifest, type BatchRunResult } from './reduction-api';
 
 // Result switcher for batch-results CSVs: many reductions of the same points,
 // one block of rows per run. Shows one run at a time and lets the method and
@@ -17,6 +18,7 @@ interface Run {
     method: string;
     params: Map<string, string>; // parameter name -> value as text, e.g. "n_neighbors" -> "15"
     rows: number[]; // point indices
+    runNumber?: number;
 }
 
 export interface RunState {
@@ -26,6 +28,11 @@ export interface RunState {
 
 let runs: Run[] = [];
 let current: Run | null = null;
+let remoteBatch: { batchId: string; manifest: BatchManifest | BatchCatalog } | null = null;
+let requestSequence = 0;
+let activeRequest: AbortController | null = null;
+const remoteRunCache = new Map<number, BatchRunResult>();
+const MAX_CACHED_RUNS = 3;
 
 const container = document.getElementById('runs-container') as HTMLDivElement;
 const runLabel = document.getElementById('run-label') as HTMLSpanElement;
@@ -108,6 +115,57 @@ function findRuns(): Run[] {
     });
 }
 
+function manifestRuns(manifest: Pick<BatchManifest, 'runs'>): Run[] {
+    return manifest.runs.map((record) => ({
+        method: record.config.algorithm,
+        params: new Map(Object.entries(record.config)
+            .filter(([name]) => name !== 'algorithm' && name !== 'n_components')
+            .map(([name, value]) => [name, String(value)])),
+        rows: [],
+        runNumber: record.run_number,
+    }));
+}
+
+function cacheRemoteRun(runNumber: number, result: BatchRunResult) {
+    remoteRunCache.delete(runNumber);
+    remoteRunCache.set(runNumber, result);
+    while (remoteRunCache.size > MAX_CACHED_RUNS) {
+        const oldest = remoteRunCache.keys().next().value;
+        if (oldest === undefined) break;
+        remoteRunCache.delete(oldest);
+    }
+}
+
+function prefetchAdjacentRuns(run: Run) {
+    if (!remoteBatch || run.runNumber === undefined) return;
+    const index = runs.indexOf(run);
+    const batchId = remoteBatch.batchId;
+    for (const neighbor of [runs[index - 1], runs[index + 1]]) {
+        if (!neighbor || neighbor.runNumber === undefined || remoteRunCache.has(neighbor.runNumber)) continue;
+        const neighborNumber = neighbor.runNumber;
+        void getBatchRun(batchId, neighborNumber).then((result) => {
+            if (remoteBatch?.batchId === batchId) cacheRemoteRun(neighborNumber, result);
+        }).catch(() => undefined);
+    }
+}
+
+function rowsForRemoteRun(result: Awaited<ReturnType<typeof getBatchRun>>): string[][] {
+    const parameterNames = Object.keys(result.hyperparameters)
+        .filter((name) => name !== 'n_components');
+    const columns = [
+        'index', 'method', 'label', 'dim1', 'dim2',
+        ...(result.output_dimensions === 3 ? ['dim3'] : []),
+        ...parameterNames.map((name) => `${result.algorithm}_${name}`),
+    ];
+    return [columns, ...result.coordinates.map((point, index) => [
+        String(result.row_ids[index] ?? index),
+        result.algorithm,
+        String(result.labels?.[index] ?? ''),
+        ...point.map(String),
+        ...parameterNames.map((name) => String(result.hyperparameters[name])),
+    ])];
+}
+
 // Of the candidates, the one sharing the most settings with `params`; ties go to the earliest
 function bestMatch(candidates: Run[], params: Map<string, string>): Run | undefined {
     let best: Run | undefined;
@@ -142,7 +200,47 @@ function paramValues(method: string, name: string): string[] {
     return Array.from(values).sort(compareValues);
 }
 
-function selectRun(run: Run, announce = true) {
+async function selectRun(run: Run, announce = true) {
+    if (remoteBatch && run.runNumber !== undefined) {
+        const sequence = ++requestSequence;
+        activeRequest?.abort();
+        activeRequest = new AbortController();
+        container.dataset.loading = 'true';
+        runLabel.textContent = `${describeRun(run)} · loading`;
+        try {
+            let result = remoteRunCache.get(run.runNumber);
+            if (result) {
+                remoteRunCache.delete(run.runNumber);
+                remoteRunCache.set(run.runNumber, result);
+            } else {
+                result = await getBatchRun(
+                    remoteBatch.batchId, run.runNumber, activeRequest.signal,
+                );
+                cacheRemoteRun(run.runNumber, result);
+            }
+            if (sequence !== requestSequence) return;
+            setupHeader(rowsForRemoteRun(result));
+            current = run;
+            container.dataset.loading = 'false';
+            const x = document.getElementById('select-xaxis') as HTMLSelectElement;
+            const y = document.getElementById('select-yaxis') as HTMLSelectElement;
+            const z = document.getElementById('select-zaxis') as HTMLSelectElement;
+            chooseOption(x, 'dim1');
+            chooseOption(y, 'dim2');
+            if (parser.columns.includes('dim3')) chooseOption(z, 'dim3');
+            const color = document.getElementById('color-select') as HTMLSelectElement;
+            if (parser.columns.includes('label')) chooseOption(color, 'label');
+            runLabel.textContent = describeRun(run);
+            renderPickers();
+            prefetchAdjacentRuns(run);
+            if (announce) toast.newMessage(`${describeRun(run)} (${result.observation_count.toLocaleString()} points)`);
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') return;
+            container.dataset.loading = 'false';
+            toast.newError(error instanceof Error ? error.message : 'Could not load this run.');
+        }
+        return;
+    }
     current = run;
     const mask = new Uint8Array(renderer.pointCount());
     for (const i of run.rows) mask[i] = 1;
@@ -165,14 +263,14 @@ function selectRun(run: Run, announce = true) {
 
 function pickMethod(method: string) {
     const run = bestMatch(runs.filter((r) => r.method === method), current?.params ?? new Map());
-    if (run) selectRun(run);
+    if (run) void selectRun(run);
 }
 
 function pickParam(name: string, value: string) {
     if (!current) return;
     const method = current.method;
     const run = bestMatch(runs.filter((r) => r.method === method && r.params.get(name) === value), current.params);
-    if (run) selectRun(run);
+    if (run) void selectRun(run);
 }
 
 // Knob turns move through the values in order and stop at the ends
@@ -232,6 +330,11 @@ function renderPickers() {
 
 // Call after setupHeader for each newly loaded file
 export function initRuns() {
+    requestSequence++;
+    activeRequest?.abort();
+    activeRequest = null;
+    remoteBatch = null;
+    remoteRunCache.clear();
     for (const action of input.getActions()) {
         if (action.group === 'Runs') input.unregisterAction(action.id);
     }
@@ -265,16 +368,61 @@ export function initRuns() {
             if (!current) return;
             const at = runs.indexOf(current);
             const next = Math.min(runs.length - 1, Math.max(0, at + step));
-            if (next !== at) selectRun(runs[next]);
+            if (next !== at) void selectRun(runs[next]);
         },
     });
     input.attachBindButton(stepAllBtn, 'run.step');
 
-    selectRun(runs[0], false);
+    void selectRun(runs[0], false);
     // Color by the class label when there is one, so runs can be compared at a glance
     const color = document.getElementById('color-select') as HTMLSelectElement;
     if (parser.columns.includes('label')) chooseOption(color, 'label');
     toast.newMessage(`Loaded ${runs.length} runs. Showing ${describeRun(runs[0])}`);
+}
+
+export function initRemoteBatch(batchId: string, manifest: BatchManifest | BatchCatalog) {
+    requestSequence++;
+    activeRequest?.abort();
+    activeRequest = null;
+    remoteBatch = { batchId, manifest };
+    remoteRunCache.clear();
+    initRunsFrom(manifestRuns(manifest));
+}
+
+function initRunsFrom(batchRuns: Run[]) {
+    for (const action of input.getActions()) {
+        if (action.group === 'Runs') input.unregisterAction(action.id);
+    }
+    runs = batchRuns;
+    current = null;
+    pickers.replaceChildren();
+    container.classList.remove('hidden');
+    const methodList = methods();
+    summary.textContent = `${runs.length} runs · ${methodList.join(', ')}. Only the selected run is loaded.`;
+    input.registerAction({
+        id: 'run.method', label: 'Run: method', group: 'Runs',
+        run: (step) => {
+            if (!current) return;
+            const list = methods();
+            pickMethod(list[(list.indexOf(current.method) + step + list.length) % list.length]);
+        },
+    });
+    const allNames = new Set(methodList.flatMap(paramNames));
+    for (const name of allNames) {
+        input.registerAction({ id: `run.param.${name}`, label: `Run: ${name}`, group: 'Runs', run: (step) => stepParam(name, step) });
+    }
+    input.registerAction({
+        id: 'run.step', label: 'Run: step through all', group: 'Runs',
+        run: (step) => {
+            if (!current) return;
+            const at = runs.indexOf(current);
+            const next = Math.min(runs.length - 1, Math.max(0, at + step));
+            if (next !== at) void selectRun(runs[next]);
+        },
+    });
+    input.attachBindButton(stepAllBtn, 'run.step');
+    void selectRun(runs[0], false);
+    toast.newMessage(`Loaded batch catalog: ${runs.length} runs. Loading one run at a time.`);
 }
 
 export function getRunState(): RunState | null {
@@ -284,5 +432,5 @@ export function getRunState(): RunState | null {
 export function applyRunState(state: RunState) {
     const params = new Map(Object.entries(state.params));
     const run = bestMatch(runs.filter((r) => r.method === state.method), params);
-    if (run) selectRun(run, false);
+    if (run) void selectRun(run, false);
 }

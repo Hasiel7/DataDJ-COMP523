@@ -11,6 +11,8 @@ import { initAxes } from './axes';
 import * as midi from './midi'
 import * as toast from './toast';
 import * as auth from './auth';
+import { uploadBatchCsv } from './reduction-api';
+import { initRemoteBatch } from './runs';
 
 window.onerror = (msg) => {
     toast.newError(`Something went wrong: ${msg}`)
@@ -64,6 +66,58 @@ inputEl.addEventListener('change', async () => {
     await openFile(file)
 })
 initSamples(openFile)
+
+const openBatchButton = document.getElementById('open-batch-btn') as HTMLButtonElement;
+const batchDialog = document.getElementById('batch-dialog') as HTMLDialogElement;
+const batchForm = document.getElementById('batch-form') as HTMLFormElement;
+const batchFileInput = document.getElementById('batch-file') as HTMLInputElement;
+const batchCancel = document.getElementById('batch-cancel') as HTMLButtonElement;
+const batchSubmit = document.getElementById('batch-submit') as HTMLButtonElement;
+const batchProgress = document.getElementById('batch-progress') as HTMLProgressElement;
+const batchProgressLabel = document.getElementById('batch-progress-label') as HTMLParagraphElement;
+const batchError = document.getElementById('batch-error') as HTMLParagraphElement;
+openBatchButton.addEventListener('click', () => {
+    batchForm.reset();
+    batchProgress.classList.add('hidden');
+    batchProgressLabel.textContent = '';
+    batchError.classList.add('hidden');
+    batchDialog.showModal();
+    batchFileInput.focus();
+});
+batchCancel.addEventListener('click', () => batchDialog.close());
+batchForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const file = batchFileInput.files?.[0];
+    if (!file) return;
+    openBatchButton.disabled = true;
+    batchSubmit.disabled = true;
+    batchCancel.disabled = true;
+    batchProgress.classList.remove('hidden');
+    batchProgress.value = 0;
+    batchError.classList.add('hidden');
+    try {
+        batchProgressLabel.textContent = `Uploading ${(file.size / 1024 / 1024).toFixed(1)} MiB…`;
+        const catalog = await uploadBatchCsv(file, (loaded, total) => {
+            batchProgress.value = total > 0 ? loaded / total * 100 : 0;
+            batchProgressLabel.textContent = loaded < total
+                ? `Uploading ${(loaded / 1024 / 1024).toFixed(1)} of ${(total / 1024 / 1024).toFixed(1)} MiB`
+                : 'Upload complete. Indexing runs…';
+        });
+        initRemoteBatch(catalog.batch_id, catalog);
+        batchDialog.close();
+        fileNameEl.textContent = fileNameEl.title = `${catalog.filename} · ${catalog.runs.length} runs`;
+        emptyStateEl.classList.add('hidden');
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Could not import batch CSV.';
+        batchError.textContent = message;
+        batchError.classList.remove('hidden');
+        toast.newError(message);
+    } finally {
+        openBatchButton.disabled = false;
+        batchSubmit.disabled = false;
+        batchCancel.disabled = false;
+    }
+});
 
 
 // Plot background, remembered in this browser

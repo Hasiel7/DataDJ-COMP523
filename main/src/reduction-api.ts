@@ -173,3 +173,91 @@ export async function createEmbedding(request: EmbeddingRequest): Promise<Embedd
         filename,
     };
 }
+
+export interface BatchRunRecord {
+    run_number: number;
+    config: AlgorithmConfig;
+    observation_count: number;
+    embedding_id?: string;
+    execution_time_seconds?: number;
+}
+
+export interface BatchManifest {
+    batch_id: string;
+    dataset: DatasetMetadata;
+    random_seed: number;
+    n_components: 2 | 3;
+    runs: BatchRunRecord[];
+}
+
+export interface BatchCatalog {
+    batch_id: string;
+    filename: string;
+    observation_count: number;
+    n_components: 2 | 3;
+    runs: BatchRunRecord[];
+}
+
+export interface BatchRunResult {
+    algorithm: Algorithm;
+    hyperparameters: Record<string, number>;
+    observation_count: number;
+    output_dimensions: 2 | 3;
+    row_ids: JsonScalar[];
+    coordinates: number[][];
+    labels: JsonScalar[] | null;
+    embedding_id?: string;
+    dataset_id?: string;
+    random_seed?: number;
+    execution_time_seconds?: number;
+}
+
+export function getBatchCatalog(batchId: string, signal?: AbortSignal): Promise<BatchCatalog> {
+    return requestJson(`/batches/${encodeURIComponent(batchId)}`, { signal });
+}
+
+export function getBatchRun(
+    batchId: string,
+    runNumber: number,
+    signal?: AbortSignal,
+): Promise<BatchRunResult> {
+    return requestJson(
+        `/batches/${encodeURIComponent(batchId)}/runs/${runNumber}`,
+        { signal },
+    );
+}
+
+export function uploadBatchCsv(
+    file: File,
+    onProgress: (loaded: number, total: number) => void,
+): Promise<BatchCatalog> {
+    return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('POST', `${API_BASE}/batches/import`);
+        request.upload.onprogress = (event) => {
+            if (event.lengthComputable) onProgress(event.loaded, event.total);
+        };
+        request.onerror = () => reject(new Error('Network error while uploading the batch CSV.'));
+        request.onabort = () => reject(new DOMException('Upload cancelled.', 'AbortError'));
+        request.onload = () => {
+            let payload: unknown;
+            try {
+                payload = JSON.parse(request.responseText);
+            } catch {
+                reject(new Error(`Batch import failed (${request.status}).`));
+                return;
+            }
+            if (request.status < 200 || request.status >= 300) {
+                const detail = payload && typeof payload === 'object' && 'detail' in payload
+                    ? (payload as { detail: unknown }).detail
+                    : `Batch import failed (${request.status}).`;
+                reject(new Error(typeof detail === 'string' ? detail : JSON.stringify(detail)));
+                return;
+            }
+            resolve(payload as BatchCatalog);
+        };
+        const body = new FormData();
+        body.append('file', file);
+        request.send(body);
+    });
+}

@@ -28,6 +28,7 @@
           <span class="file-btn-action">Open CSV</span>
           <span id="file-name" class="file-name">No file loaded</span>
         </label>
+        <button id="open-batch-btn" class="main-btn" type="button" title="Upload a batch CSV and browse one run at a time">Open batch CSV</button>
 
         <div class="dropdown-container">
           <button class="main-btn" type="button">Samples <span aria-hidden="true">▾</span></button>
@@ -194,6 +195,24 @@
 
       <div id="toast" class="hidden" role="status"></div>
     </main>
+
+    <dialog id="batch-dialog" class="modal" aria-labelledby="batch-dialog-title">
+      <form id="batch-form" method="dialog" novalidate>
+        <h2 id="batch-dialog-title">Open batch CSV</h2>
+        <p class="modal-text">The server indexes runs as it reads the file. The viewer then loads only the selected run.</p>
+        <label class="modal-field">
+          <span>Batch CSV</span>
+          <input id="batch-file" name="batch-file" type="file" accept=".csv,text/csv" required />
+        </label>
+        <progress id="batch-progress" class="batch-progress hidden" max="100" value="0"></progress>
+        <p id="batch-progress-label" class="modal-text" role="status"></p>
+        <p id="batch-error" class="auth-error hidden" role="alert"></p>
+        <div class="modal-actions">
+          <button id="batch-cancel" type="button">Cancel</button>
+          <button id="batch-submit" class="primary-btn" type="submit">Upload and index</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="auth-dialog" class="modal" aria-labelledby="auth-title">
       <form method="dialog" novalidate>

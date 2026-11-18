@@ -125,6 +125,186 @@ directory is git-ignored. Uploads are limited to 200 MiB and at most 100,000
 observations may be selected. These synchronous safeguards do not provide a
 hard execution timeout; reliable timeouts require isolated jobs or worker
 processes.
+## Batch Jobs and Parallel Execution
+
+`POST /api/jobs` validates and saves a grid as one queued batch job. Start the
+automatic queue consumer from the repository root:
+
+```powershell
+uv run --directory backend python -m app.worker_cli --max-workers 3
+```
+
+It polls every two seconds while idle and processes one batch at a time, with
+parallel configurations within that batch. `--once` drains available jobs and
+exits instead of waiting for future submissions. A specific job can still be
+executed by supplying its UUID:
+
+```powershell
+uv run --directory backend python -m app.worker_cli <job-id> --max-workers 3
+```
+
+To also deliver results to the current Windows user's Downloads folder and
+send a desktop completion notification:
+
+```powershell
+uv run --directory backend python -m app.worker_cli <job-id> --max-workers 3 --download --notify
+```
+
+`--download-directory <path>` overrides the destination. This is a local file
+copy on the worker computer, not a browser download. The original artifact
+remains in place. Successful delivery creates `data-dj-{job-id}.zip` and a
+matching `.completion.json` receipt with UTC start/end timestamps and elapsed
+seconds from the database. Elapsed time covers job start through ZIP completion,
+including interruptions on resumed jobs, but excludes queue waiting and the
+subsequent Downloads copy. Notifications use Windows toasts and may be hidden by
+Focus Assist or notification settings. Delivery and notification failures are
+logged separately and do not change a successfully computed job to failed.
+
+The CLI defaults to the smaller of 3 and the available CPU count. Use
+`--max-workers 1` for serial execution or memory-constrained machines.
+`BatchService(storage, max_workers=3)` enables the same behavior for Python
+callers; its default remains serial. Single-run batches do not start a pool.
+
+Parallel batches schedule individual configurations in round-robin algorithm
+order, so a long grid for one method does not initially occupy every slot.
+Joblib's `loky` backend runs them in separate processes, dispatches at most
+the worker count initially, and limits supported numerical-library thread
+pools to one thread per child. Large feature arrays use read-only memory maps
+to reduce repeated serialization. Algorithm working memory still scales with
+the number of concurrent runs.
+
+All `JobExecutor` instances acquire an OS-backed lock beside the SQLite database
+before claiming or resuming jobs. A continuous consumer holds it for its lifetime.
+Another CLI invocation exits with code 2 instead of starting another pool.
+The lock scope is one local database, even when callers use different artifact
+directories. Separate databases, direct `BatchService` callers, and synchronous
+embedding API requests are outside this budget. Never remove a lock file while
+a worker is active; the file's presence alone does not mean it is locked.
+
+Optional memory reservations reduce concurrency:
+
+```powershell
+uv run --directory backend python -m app.worker_cli --max-workers 3 --memory-budget-mb 4096 --memory-per-run-mb 1024
+```
+
+This reserves 1024 MiB for the coordinator and up to three runs. The derived
+run count is `min(max_workers, floor(budget / reservation) - 1)`; insufficient
+or incomplete reservations are rejected before accessing the database. These
+are operator-provided estimates, not measured usage or OS-enforced RAM limits.
+Choose reservations using measurements of representative datasets; algorithms
+may allocate large pairwise matrices, and actual memory may exceed the estimate.
+
+The coordinator checkpoints completed results under
+`backend/data/artifacts/checkpoints/{job-id}/{identity-hash}/` by default.
+`DATA_DJ_ARTIFACT_ROOT` overrides the artifact and checkpoint root; keep it
+consistent between restarts. The identity includes the plan, seed, dataset
+features and row identities, metadata, and library versions. Each result is
+checksummed, flushed to disk, and atomically renamed from a temporary file.
+Missing, malformed, mismatched, or corrupt results are recomputed. Changes to
+inputs or library versions create a new checkpoint namespace, not mixed results.
+
+After all runs succeed, the coordinator reads one result at a time in saved-plan
+order to build the CSV and manifest. Only the coordinator writes exports; the
+ZIP is published only after successful assembly. Completed checkpoints remain
+after success or failure. Stop the worker before manually deleting checkpoints
+that are no longer needed. There is no automatic retention policy yet.
+
+On process crash or Ctrl+C, unfinished jobs remain `running`. Once a replacement
+coordinator owns the lock, it considers interrupted running jobs before queued
+jobs and computes only configurations without valid checkpoints. The OS releases
+the lock on process exit; no heartbeat or timeout takeover is required. Recovery
+is at configuration boundaries, not inside an interrupted algorithm. A caught
+algorithm error marks the job `failed`, and the consumer continues to other jobs;
+failed jobs are not automatically retried. Legacy jobs without saved plans are
+skipped. Exit codes are 0 for success, 1 for failure, 2 for a busy coordinator or
+unclaimable job, and 130 for Ctrl+C.
+
+This is local, single-host recovery, not distributed scheduling. Force-killing a
+coordinator may leave temporary files and briefly surviving library child
+processes; inspect and stop orphaned workers before restarting if necessary.
+Atomic checkpoints protect against interrupted writes, but sudden power loss
+still depends on filesystem durability. A crash between ZIP publication and
+recording job success may leave an unreferenced ZIP; a restart safely rebuilds
+the package from checkpoints. No schema migration is required for these changes.
+
+Grid axes already accept decimal strings for `start`, `stop`, and `step`:
+
+```json
+{
+	"dataset_id": "<dataset-id>",
+	"algorithms": {
+		"tsne": {
+			"perplexity": {"start": "1", "stop": "2", "step": "0.1"}
+		}
+	},
+	"n_components": 2,
+	"random_seed": 42
+}
+```
+
+This produces 11 perplexity values, including both endpoints. Decimal arithmetic
+avoids accumulated binary floating-point error when generating the range.
+An endpoint is included only if the step reaches it exactly. Continuous
+parameters are UMAP `min_dist`, t-SNE `perplexity` and `learning_rate`, and
+PHATE `decay`. Neighbor counts, iteration counts, and PHATE `t` remain integers;
+fractional values are rejected. Dataset-specific constraints still apply.
+
+The limits are 200 total runs per job (combined across algorithms) and 1,000
+values per axis. The saved execution plan uses the same 200-run cap. This is
+a capacity limit, not a runtime guarantee, and does not change concurrency.
+For initial timing tests, use 500-1,000 observations and 10-20 configurations
+before attempting 200. Measure per-algorithm timings on the same dataset and
+settings; increasing observation count can increase runtime nonlinearly.
+
+## Viewing Large Batches
+
+The explorer's **Open batch CSV** control accepts an exported batch directly;
+researchers do not need a job ID. The browser uploads the file with transfer
+progress to `POST /api/batches/import`. FastAPI's multipart `UploadFile` spools
+larger request bodies to a temporary file; the importer then parses that file
+row by row rather than reading the complete upload into a bytes object. The
+current upload limit is 2 GiB.
+Multipart parsing receives the request before the route indexes it, so
+large bodies are spooled to temporary disk (not retained in application RAM).
+Deployments must set the reverse proxy/server request-body limit at least as
+high as the application limit and provide temporary disk space for the incoming
+file. The importer then makes compressed per-run partitions, so peak disk use
+includes the upload spool plus partitions until request cleanup.
+
+New generated CSVs include `run_number` on every row. The importer accepts both
+that explicit format and older exports without it; legacy runs are inferred
+from contiguous algorithm/configuration blocks. It validates configuration,
+coordinates, unique observation IDs, row alignment across runs, sequential run
+numbers, and size limits. It writes one gzip-compressed CSV partition at a time
+under a staging directory. Only after the entire file validates does it
+atomically publish a catalog under `DATA_DJ_BATCH_ROOT` (default
+`backend/data/batches`). Invalid uploads remove their staging directory.
+
+The returned opaque batch ID is a catalog reference, not a job ID. The UI loads
+the small catalog and fetches `GET /api/batches/{batch_id}/runs/{run_number}`
+for the selected run. It keeps at most the current run and its two neighbors in
+a bounded browser cache, prefetching adjacent runs to make back/forward changes
+fast without retaining the whole sweep. Upload indexing time depends on file
+size, storage speed, and compression; switching to a cached adjacent run is
+immediate, while a cache miss requires one run request.
+
+`BatchStorage` is the storage boundary. The current implementation stores local
+compressed partitions, while a future object-storage implementation can use the
+same catalog/run interface without exposing local filesystem paths to users.
+For deployment, configure `DATA_DJ_BATCH_ROOT` consistently or provide a
+shared storage implementation; local batch catalogs are not automatically
+available to other machines. Hosted deployments must set `VITE_API_BASE_URL`
+to an API that can access the same batch storage.
+The current import/catalog endpoints are a local prototype without per-user
+ownership checks. Before public deployment, associate catalogs with the signed-in
+user (or an explicit share grant), enforce authorization on catalog/run reads,
+and add retention/quota controls; an unguessable UUID alone is not an access
+control policy.
+Large exhaustive sweeps still need progress reporting, explicit retry and
+cancellation controls, compact previews, and retention limits before those
+grid limits are raised. This worker adds local checkpoint recovery and automatic
+queue consumption without changing the public job API.
+
 ## Accounts and Favorites
 
 The visualizer's favorites are saved per user when signed in. The explorer only

@@ -7,6 +7,8 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "alembic>=1.16,<2.0",
     "fastapi>=0.115,<1.0",
+    "filelock>=3.16,<4.0",
+    "joblib>=1.4,<2.0",
     "numpy>=2.2,<3.0",
     "pandas>=2.2,<4.0",
     "phate>=2.0,<3.0",
@@ -17,6 +19,7 @@ dependencies = [
     "sqlalchemy>=2.0,<2.1",
     "umap-learn>=0.5.7,<0.6",
     "uvicorn[standard]>=0.34,<1.0",
+    "winotify>=1.1,<2.0; sys_platform == 'win32'",
 ]
 
 [dependency-groups]

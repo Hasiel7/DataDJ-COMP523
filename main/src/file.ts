@@ -26,6 +26,9 @@ export const dependents: Map<string, string> = new Map();
 // column => column it depends on
 // Can only depend on one column at a time
 export function parseData(data: string[][]) {
+    if (!data[0]?.length || data.length < 2) {
+        throw new Error('CSV must contain a header and at least one data row.')
+    }
     // TODO: check if each value in a column are all the same type (string or number)
     // 2D array of csv file, csv[row][column]
     // First row will have column names

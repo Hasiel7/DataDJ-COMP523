@@ -2,6 +2,8 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
+from filelock import FileLock
+
 from app.services.batches import BatchService
 from app.services.jobs import JobService
 
@@ -18,15 +20,21 @@ class JobExecutor:
         self.jobs = jobs
         self.batches = batches
         self.artifact_root = artifact_root.resolve()
+        self.worker_lock = FileLock(jobs.worker_lock_path())
 
     def execute(self, job_id: UUID) -> bool:
-        plan = self.jobs.claim(job_id)
+        with self.worker_lock.acquire(timeout=0):
+            return self._execute_locked(job_id)
+
+    def _execute_locked(self, job_id: UUID) -> bool:
+        plan = self.jobs.claim(job_id, resume=True)
         if plan is None:
             return False
 
         try:
             package = self.batches.compute_plan_package(
-                plan, self.artifact_root / "exports"
+                plan, self.artifact_root / "exports",
+                checkpoint_directory=self.artifact_root / "checkpoints" / str(job_id),
             )
             package = package.resolve()
             artifact_key = package.relative_to(self.artifact_root).as_posix()

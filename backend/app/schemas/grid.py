@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.dr.config import Algorithm, AlgorithmConfig
 
 MAX_VALUES_PER_RANGE = 1000
-MAX_RUNS_PER_JOB = 25
+MAX_RUNS_PER_JOB = 200
 
 class NumericRange(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)

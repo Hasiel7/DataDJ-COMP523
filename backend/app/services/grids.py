@@ -12,7 +12,7 @@ from app.dr.config import (
 )
 from app.schemas.grid import MAX_RUNS_PER_JOB, GridPreviewRequest, NumericRange
 
-DEFAULT_MAX_RUNS = 25
+DEFAULT_MAX_RUNS = MAX_RUNS_PER_JOB
 CONFIG_ADAPTER = TypeAdapter(AlgorithmConfig)
 CONFIG_MODELS = {
     Algorithm.PHATE: PHATEConfig,

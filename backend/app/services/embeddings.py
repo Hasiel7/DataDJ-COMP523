@@ -30,14 +30,14 @@ class EmbeddingService:
             raise DatasetNotFoundError("Dataset not found.")
         return self.compute_prepared(dataset, request)
 
+    @staticmethod
     def compute_prepared(
-        self,
         dataset: PreparedDataset,
         request: EmbeddingRequest,
     ) -> EmbeddingResult:
         if dataset.metadata.dataset_id != request.dataset_id:
             raise ValueError("Prepared dataset does not match the request.")
-        self._validate_dataset_size(dataset)
+        EmbeddingService._validate_dataset_size(dataset)
 
         started_at = perf_counter()
         coordinates = run_reduction(

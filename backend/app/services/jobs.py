@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from uuid import UUID
 
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.job import Job, JobStatus
@@ -29,6 +29,26 @@ class JobService:
     ) -> None:
         self.session_factory = session_factory
         self.dataset_storage = dataset_storage
+
+    def worker_lock_path(self) -> Path:
+        with self.session_factory() as session:
+            database = session.get_bind().engine.url.database
+        if not database or database == ":memory:":
+            raise ValueError("Workers require a file-backed SQLite database.")
+        path = Path(database).resolve()
+        return path.with_suffix(path.suffix + ".worker.lock")
+
+    def next_pending(self) -> UUID | None:
+        with self.session_factory.begin() as session:
+            return session.scalar(
+                select(Job.id)
+                .where(
+                    Job.status.in_((JobStatus.RUNNING, JobStatus.QUEUED)),
+                    Job.execution_plan.is_not(None),
+                )
+                .order_by((Job.status == JobStatus.RUNNING).desc(), Job.created_at, Job.id)
+                .limit(1)
+            )
 
     def submit(self, request: GridPreviewRequest) -> UUID:
         metadata = self.dataset_storage.get_metadata(request.dataset_id)
@@ -86,18 +106,20 @@ class JobService:
                 raise ValueError("Execution plan dataset does not match the job.")
             return plan
         
-    def claim(self, job_id: UUID) -> ExecutionPlan | None:
+    def claim(self, job_id: UUID, *, resume: bool = False) -> ExecutionPlan | None:
         with self.session_factory.begin() as session:
             statement = (
                 update(Job)
                 .where(
                     Job.id == job_id,
-                    Job.status == JobStatus.QUEUED,
+                    Job.status.in_(
+                        (JobStatus.QUEUED, JobStatus.RUNNING) if resume else (JobStatus.QUEUED,)
+                    ),
                     Job.execution_plan.is_not(None),
                 )
                 .values(
                     status=JobStatus.RUNNING,
-                    started_at=datetime.now(UTC),
+                    started_at=func.coalesce(Job.started_at, datetime.now(UTC)),
                 )
                 .returning(Job)
             )

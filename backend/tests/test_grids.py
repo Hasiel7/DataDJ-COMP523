@@ -101,17 +101,17 @@ def test_job_rejects_combined_count_over_limit() -> None:
             Algorithm.UMAP: {
                 "n_neighbors": NumericRange(
                     start=Decimal("2"), 
-                    stop=Decimal("14"), 
+                    stop=Decimal("102"), 
                     step=Decimal("1")),
             },
             Algorithm.PHATE: {
-                "knn": NumericRange(start=Decimal("2"), stop=Decimal("14"), step=Decimal("1"))
+                "knn": NumericRange(start=Decimal("2"), stop=Decimal("101"), step=Decimal("1"))
             },
         },
     )
 
-    with pytest.raises(ValueError, match="Total grid contains 26 runs"):
-        expand_job_grid(request, n_samples=100)
+    with pytest.raises(ValueError, match="Total grid contains 201 runs"):
+        expand_job_grid(request, n_samples=300)
 
 def test_preview_endpoint_returns_validated_configurations(tmp_path: Path) -> None:
     storage = LocalDatasetStorage(tmp_path)
@@ -164,8 +164,8 @@ def test_preview_endpoint_returns_validated_configurations(tmp_path: Path) -> No
             False, 422, "Unknown parameters",
         ),
         (
-            {"umap": {"n_epochs": {"start": "1", "stop": "26", "step": "1"}}},
-            False, 422, "26 runs",
+            {"umap": {"n_epochs": {"start": "1", "stop": "201", "step": "1"}}},
+            False, 422, "201 runs",
         ),
         (
             {"tsne": {"perplexity": {"start": "1", "stop": "2", "step": "0"}}},

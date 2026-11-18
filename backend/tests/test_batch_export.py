@@ -12,7 +12,7 @@ def test_batch_csv_combines_methods_and_preserves_identity() -> None:
     writer = BatchCsvWriter(output, n_components=3)
     dataset_id = uuid4()
 
-    for algorithm in Algorithm:
+    for run_number, algorithm in enumerate(Algorithm, start=1):
         parameters: dict[str, int | float] = {
             name: 5 for name in PARAMETER_COLUMNS[algorithm.value]
         }
@@ -29,10 +29,11 @@ def test_batch_csv_combines_methods_and_preserves_identity() -> None:
             coordinates=[[1.0, 2.0, 3.0]],
             labels=['case, "group A"'],
         )
-        writer.append(result)
+        writer.append(result, run_number)
 
     rows = list(csv.DictReader(StringIO(output.getvalue())))
     assert len(rows) == 3
+    assert [row["run_number"] for row in rows] == ["1", "2", "3"]
     assert {row["method"] for row in rows} == {"umap", "tsne", "phate"}
     assert all(row["index"] == "sample-A" for row in rows)
     assert all(row["label"] == 'case, "group A"' for row in rows)

@@ -6,6 +6,7 @@ from zipfile import ZipFile
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from app.schemas.batch import BatchManifest
 from app.schemas.grid import GridPreviewRequest
@@ -14,7 +15,10 @@ from app.services.datasets import DatasetService
 from app.storage.local import LocalDatasetStorage
 
 
-def test_real_algorithms_produce_complete_batch_package(tmp_path: Path) -> None:
+@pytest.mark.parametrize("max_workers", [1, 3])
+def test_real_algorithms_produce_complete_batch_package(
+    tmp_path: Path, max_workers: int
+) -> None:
     rng = np.random.default_rng(42)
     frame = pd.DataFrame(
         rng.normal(size=(40, 5)),
@@ -44,7 +48,9 @@ def test_real_algorithms_produce_complete_batch_package(tmp_path: Path) -> None:
             "phate": {"knn": fixed("4"), "t": fixed("2")},
         },
     })
-    package = BatchService(storage).compute_package(request, tmp_path / "exports")
+    package = BatchService(storage, max_workers=max_workers).compute_package(
+        request, tmp_path / "exports", checkpoint_directory=tmp_path / "checkpoints"
+    )
 
     with ZipFile(package) as archive:
         assert archive.testzip() is None
@@ -55,6 +61,12 @@ def test_real_algorithms_produce_complete_batch_package(tmp_path: Path) -> None:
 
     assert len(manifest.runs) == 3
     assert len(rows) == 120
+    restored_package = BatchService(storage, max_workers=max_workers).compute_package(
+        request, tmp_path / "exports", checkpoint_directory=tmp_path / "checkpoints"
+    )
+    with ZipFile(restored_package) as archive:
+        restored = BatchManifest.model_validate_json(archive.read("manifest.json"))
+    assert restored.runs == manifest.runs
     for method in ("umap", "tsne", "phate"):
         method_rows = [row for row in rows if row["method"] == method]
         assert [row["index"] for row in method_rows] == dataset.row_ids

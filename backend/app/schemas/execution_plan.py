@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.dr.config import AlgorithmConfig
+from app.schemas.grid import MAX_RUNS_PER_JOB
 
 
 class ExecutionPlan(BaseModel):
@@ -14,7 +15,7 @@ class ExecutionPlan(BaseModel):
     observation_count: int = Field(ge=2)
     n_components: Literal[2, 3]
     random_seed: int = Field(ge=0, le=4_294_967_295)
-    configs: tuple[AlgorithmConfig, ...] = Field(min_length=1, max_length=25)
+    configs: tuple[AlgorithmConfig, ...] = Field(min_length=1, max_length=MAX_RUNS_PER_JOB)
 
     @model_validator(mode="after")
     def validate_dimensions(self) -> Self:

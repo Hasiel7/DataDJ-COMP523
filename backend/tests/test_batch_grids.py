@@ -6,6 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from app.dr.config import Algorithm, TSNEConfig
 from app.schemas.grid import GridPreviewRequest
 from app.services.batches import BatchService
 from app.services.datasets import DatasetService
@@ -18,22 +19,22 @@ def test_batch_validates_whole_grid_before_execution(
     invalid_last_value: bool,
 ) -> None:
     storage = LocalDatasetStorage(tmp_path)
-    dataset = DatasetService().prepare(
-        b"value\n10\n20\n30\n40\n50\n", "sample.csv"
-    )
+    dataset = DatasetService().prepare(b"value\n10\n20\n30\n40\n50\n", "sample.csv")
     storage.save(dataset)
-    request = GridPreviewRequest.model_validate({
-        "dataset_id": dataset.metadata.dataset_id,
-        "algorithms": {
-            "tsne": {
-                "perplexity": {
-                    "start": "4" if invalid_last_value else "1",
-                    "stop": "5" if invalid_last_value else "2",
-                    "step": "1",
+    request = GridPreviewRequest.model_validate(
+        {
+            "dataset_id": dataset.metadata.dataset_id,
+            "algorithms": {
+                "tsne": {
+                    "perplexity": {
+                        "start": "4" if invalid_last_value else "1",
+                        "stop": "5" if invalid_last_value else "2",
+                        "step": "1",
+                    }
                 }
-            }
-        },
-    })
+            },
+        }
+    )
     output = StringIO(newline="")
 
     with patch(
@@ -48,14 +49,41 @@ def test_batch_validates_whole_grid_before_execution(
             assert output.getvalue() == ""
         else:
             assert service.compute_csv(request, output) == 2
-            assert [
-                call.args[2].perplexity for call in reduce.call_args_list
-            ] == [1.0, 2.0]
+            assert [call.args[2].perplexity for call in reduce.call_args_list] == [1.0, 2.0]
 
     if not invalid_last_value:
         rows = list(csv.DictReader(StringIO(output.getvalue())))
         assert len(rows) == 10
-        assert [row["tsne_perplexity"] for row in rows] == (
-            ["1.0"] * 5 + ["2.0"] * 5
-        )
+        assert [row["tsne_perplexity"] for row in rows] == (["1.0"] * 5 + ["2.0"] * 5)
+        assert [row["run_number"] for row in rows] == ["1"] * 5 + ["2"] * 5
         assert [row["index"] for row in rows] == ["0", "1", "2", "3", "4"] * 2
+
+
+@pytest.mark.parametrize("stop,step", [("2", "0.1"), ("1.1", "0.01")])
+def test_fine_decimal_grid_preserves_each_configuration(
+    tmp_path: Path, stop: str, step: str
+) -> None:
+    storage = LocalDatasetStorage(tmp_path)
+    dataset = DatasetService().prepare(b"value\n1\n2\n3\n4\n5\n", "sample.csv")
+    storage.save(dataset)
+    request = GridPreviewRequest.model_validate(
+        {
+            "dataset_id": dataset.metadata.dataset_id,
+            "algorithms": {"tsne": {"perplexity": {"start": "1", "stop": stop, "step": step}}},
+        }
+    )
+    output = StringIO()
+    with patch("app.services.embeddings.run_reduction", return_value=np.zeros((5, 2))):
+        manifest = BatchService(storage).compute_csv_with_manifest(request, output)
+    axis = request.algorithms[Algorithm.TSNE]["perplexity"]
+    expected = [float(value) for value in axis.values()]
+    assert len(expected) == 11
+    actual = []
+    for record in manifest.runs:
+        assert isinstance(record.config, TSNEConfig)
+        actual.append(record.config.perplexity)
+    assert actual == expected
+    rows = list(csv.DictReader(StringIO(output.getvalue())))
+    assert [float(row["tsne_perplexity"]) for row in rows] == [
+        value for value in expected for _ in range(5)
+    ]
