@@ -16,8 +16,8 @@ const samples: Sample[] = [
         file: 't47d.csv',
         label: 'T47D cell cycle',
         size: '18 MB',
-        description: 'A dataset containing measurements of T47D breast cancer cells, including cell-cycle information and biological markers. It can be used to explore patterns in cell-cycle behavior.',
-        citation: 'Source: Tarek Zikry and Jeremy Purvis (citation pending confirmation).'
+        description: 'Single-cell cycle proteomics of ER+/HER2- breast tumor cells from the T47D cell line.',
+        citation: 'Zikry, T. M., Wolff, S. C., Ranek, J. S., Davis, H. M., Naugle, A., Luthra, N., ... & Purvis, J. E. (2024). Cell cycle plasticity underlies fractional resistance to palbociclib in ER+/HER2− breast tumor cells. Proceedings of the National Academy of Sciences, 121(7), e2309261121.'
     },
     {
         file: 'mnist_phate.csv',
@@ -26,6 +26,14 @@ const samples: Sample[] = [
         originalFile: 'mnist_original.zip',
         description: 'A dataset of 60,000 handwritten digit images (0–9), represented using PHATE dimensionality reduction. It can be used to explore how handwritten digits cluster in a lower-dimensional space.',
         citation: 'LeCun, Y., Bottou, L., Bengio, Y., & Haffner, P. (1998). Gradient-based learning applied to document recognition. Proceedings of the IEEE, 86(11), 2278–2324. DOI: 10.1109/5.726791'
+    },
+    {
+        file: 'rpe_phate.csv',
+        label: 'RPE cell cycle — PHATE',
+        size: '8,850 cells',
+        originalFile: 'rpe_original.csv',
+        description: 'Single-cell cell cycle proteomics of healthy, cycling RPE cells. The dataset contains PHATE coordinates that can be used to explore patterns in cell-cycle behavior.',
+        citation: 'Stallaert, W., Kedziora, K. M., Taylor, C. D., Zikry, T. M., Ranek, J. S., Sobon, H. K., ... & Purvis, J. E. (2022). The structure of the human cell cycle. Cell Systems, 13(3), 230–240.'
     },
 ];
 
