@@ -1,6 +1,8 @@
+import os
 from pathlib import Path
 
 from sqlalchemy import URL, Engine, create_engine, event
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -9,6 +11,17 @@ class Base(DeclarativeBase):
 
 
 def create_database_engine(database_path: Path | None = None) -> Engine:
+    database_url = os.environ.get("DATA_DJ_DATABASE_URL")
+
+    if database_path is None and database_url:
+        url = make_url(database_url)
+
+        if url.drivername != "postgresql+psycopg":
+            raise ValueError(
+                "DATA_DJ_DATABASE_URL must use postgresql+psycopg."
+            )
+
+        return create_engine(url, pool_pre_ping=True)
     path = (
         database_path
         if database_path is not None
