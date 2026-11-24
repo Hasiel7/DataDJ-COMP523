@@ -172,3 +172,41 @@ def test_users_and_favorites_migration_cascades_deletes(tmp_path: Path) -> None:
     finally:
         config.attributes.pop("connection", None)
         engine.dispose()
+
+def test_job_lease_migration_preserves_existing_jobs(tmp_path: Path) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    config = Config(str(backend / "alembic.ini"))
+    engine = create_database_engine(tmp_path / "lease-test.sqlite3")
+
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "7c2f4e1a9b3d")
+            connection.execute(
+                text(
+                    "INSERT INTO jobs "
+                    "(id, dataset_id, status, request_payload, created_at) "
+                    "VALUES (:id, :dataset_id, 'queued', '{}', '2026-10-25')"
+                ),
+                {"id": "1" * 32, "dataset_id": "2" * 32},
+            )
+
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+            row = connection.execute(
+                text("SELECT status, claim_token, lease_expires_at FROM jobs")
+            ).one()
+            assert row.status == "queued"
+            assert row.claim_token is None
+            assert row.lease_expires_at is None
+
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "7c2f4e1a9b3d")
+            assert connection.execute(
+                text("SELECT status FROM jobs")
+            ).scalar_one() == "queued"
+    finally:
+        config.attributes.pop("connection", None)
+        engine.dispose()
