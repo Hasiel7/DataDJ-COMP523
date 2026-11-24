@@ -1,8 +1,8 @@
-import { loadFile } from './fileHandler';
+import { loadFile, loadOriginalFile, getOriginalData } from './fileHandler';
 import { initSamples } from './samples';
 import { animate } from './render';
 import * as renderer from './render';
-import { initDropdowns, recolor } from './header';
+import { initDropdowns, recolor, updateOriginalColorOptions } from './header';
 import { initBoard } from './board';
 import { initFavorites } from './favorites';
 import { initAccount } from './account';
@@ -55,6 +55,18 @@ async function openFile(file: File) {
     toast.closeToast()
     fileNameEl.textContent = fileNameEl.title = file.name
     emptyStateEl.classList.add('hidden')
+
+    // Reset original-column selections when a new processed CSV is loaded.
+    selectedOriginalColumns.clear();
+
+    const selectedLabel = document.getElementById('original-column-selected');
+
+    if (selectedLabel) {
+        selectedLabel.textContent = 'Selected: None';
+    }
+
+    updateOriginalColumnOptions(originalColumnSearch.value);
+    syncOriginalColorOptions();
 }
 inputEl.addEventListener('change', async () => {
     const file = inputEl.files?.[0]
@@ -64,6 +76,126 @@ inputEl.addEventListener('change', async () => {
     await openFile(file)
 })
 initSamples(openFile)
+
+const originalColumnSearch = document.getElementById('original-column-search') as HTMLInputElement;
+const originalColumnList = document.getElementById('original-column-list') as HTMLDivElement;
+
+let originalColumnNames: string[] = [];
+const selectedOriginalColumns = new Set<string>();
+
+function updateOriginalColumnOptions(searchText: string = '') {
+    originalColumnList.replaceChildren();
+
+    const matches = originalColumnNames.filter(name =>
+        name.toLowerCase().includes(searchText.toLowerCase().trim())
+    );
+
+    if (matches.length === 0) {
+        const message = document.createElement('div');
+        message.textContent = 'No matching columns';
+        originalColumnList.appendChild(message);
+        return;
+    }
+
+    for (const name of matches) {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.textContent = name;
+        option.className = 'original-column-option';
+        option.setAttribute('role', 'option');
+        option.setAttribute('aria-selected', String(selectedOriginalColumns.has(name)));
+
+        
+        option.addEventListener('click', () => {
+            if (selectedOriginalColumns.has(name)) {
+                selectedOriginalColumns.delete(name);
+            } else {
+                selectedOriginalColumns.add(name);
+            }
+
+            const selectedLabel = document.getElementById('original-column-selected');
+
+            if (selectedLabel) {
+                selectedLabel.textContent =
+                    `${selectedOriginalColumns.size} column(s) selected`;
+            }
+
+            updateOriginalColumnOptions(originalColumnSearch.value);
+            syncOriginalColorOptions();
+        });
+
+        originalColumnList.appendChild(option);
+    }
+}
+
+function syncOriginalColorOptions() {
+    updateOriginalColorOptions(Array.from(selectedOriginalColumns));
+}
+
+
+originalColumnSearch.addEventListener('input', () => {
+    updateOriginalColumnOptions(originalColumnSearch.value);
+});
+const clearOriginalColumnsButton = document.getElementById('original-column-clear') as HTMLButtonElement;
+
+clearOriginalColumnsButton.addEventListener('click', () => {
+    selectedOriginalColumns.clear();
+
+    const selectedLabel = document.getElementById('original-column-selected');
+
+    if (selectedLabel) {
+        selectedLabel.textContent = 'Selected: None';
+    }
+
+    updateOriginalColumnOptions(originalColumnSearch.value);
+    syncOriginalColorOptions();
+});
+
+const originalInputEl = document.getElementById('original-input-file') as HTMLInputElement;
+const originalFileNameEl = document.getElementById('original-file-name') as HTMLSpanElement;
+
+originalInputEl.addEventListener('change', async () => {
+    const file = originalInputEl.files?.[0];
+    if (!file) return;
+
+    originalInputEl.value = '';
+
+    try {
+        const hasHeaders = (
+            document.getElementById('original-has-headers') as HTMLInputElement
+        ).checked;
+        const rowCount = await loadOriginalFile(file, hasHeaders);
+
+        
+        const data = getOriginalData();
+
+        if (data) {
+            originalColumnNames = data[0];
+            selectedOriginalColumns.clear();
+            const selectedLabel = document.getElementById('original-column-selected');
+
+            if (selectedLabel) {
+                selectedLabel.textContent = 'Selected: None';
+            }
+
+            originalColumnSearch.value = '';
+            originalColumnSearch.disabled = false;
+
+            updateOriginalColumnOptions();
+            syncOriginalColorOptions();
+        }
+
+
+        originalFileNameEl.textContent = file.name;
+        originalFileNameEl.title = file.name;
+
+        toast.newMessage(`Original dataset loaded: ${rowCount} rows`);
+    } catch (error) {
+        toast.newError(
+            error instanceof Error ? error.message : 'Could not load original dataset.'
+        );
+    }
+});
 
 
 // Plot background, remembered in this browser
