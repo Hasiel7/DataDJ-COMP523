@@ -1,8 +1,10 @@
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 
+from azure.identity import ManagedIdentityCredential
+from azure.storage.blob import BlobServiceClient
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,6 +18,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.jobs import router as jobs_router
 from app.db import create_database_engine, create_session_factory
 from app.storage.batches import LocalBatchStorage
+from app.storage.blob_datasets import BlobDatasetStorage
 from app.storage.embeddings import InMemoryEmbeddingStorage
 from app.storage.local import LocalDatasetStorage
 
@@ -25,7 +28,24 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     engine = create_database_engine()
     application.state.session_factory = create_session_factory(engine)
     try:
-        yield
+        with ExitStack() as resources:
+            backend = os.environ.get("DATA_DJ_DATASET_STORAGE", "local")
+
+            if backend == "local":
+                application.state.dataset_storage = LocalDatasetStorage()
+            elif backend == "blob":
+                account_url = os.environ["DATA_DJ_BLOB_ACCOUNT_URL"]
+                credential = resources.enter_context(ManagedIdentityCredential())
+                service = resources.enter_context(
+                    BlobServiceClient(account_url=account_url, credential=credential)
+                )
+                application.state.dataset_storage = BlobDatasetStorage(
+                    service.get_container_client("datadj")
+                )
+            else:
+                raise ValueError(f"Unsupported dataset storage backend: {backend!r}")
+
+            yield
     finally:
         engine.dispose()
 
