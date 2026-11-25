@@ -19,7 +19,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api
 
 // The fallback above is for local dev. A build without VITE_API_BASE_URL (the hosted
 // demo) has no API behind it, so signing in and the Reduction lab would only fail there.
-export const hasBackend = Boolean(import.meta.env.VITE_API_BASE_URL);
+export const hasBackend = import.meta.env.DEV || Boolean(import.meta.env.VITE_API_BASE_URL);
 const TOKEN_KEY = 'datadj.auth.token';
 const USER_KEY = 'datadj.auth.user';
 
@@ -53,6 +53,23 @@ export function getUser(): User | null {
     return currentUser;
 }
 
+export function getAccessToken(): string | null {
+    return localStorage.getItem(TOKEN_KEY);
+}
+
+export function handleUnauthorized(token: string | null): void {
+    if (token && getAccessToken() === token) setSession(null, null);
+}
+
+export async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    const token = getAccessToken();
+    const headers = new Headers(init.headers);
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+    if (response.status === 401) handleUnauthorized(token);
+    return response;
+}
+
 // Called with the new user (or null) whenever someone signs in or out
 export function onAuthChange(listener: (user: User | null) => void) {
     listeners.add(listener);
@@ -73,19 +90,15 @@ function setSession(token: string | null, user: User | null) {
 
 // fetch against the API, with the session's token when there is one
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const token = localStorage.getItem(TOKEN_KEY);
     const headers = new Headers(init.headers);
-    if (token) headers.set('Authorization', `Bearer ${token}`);
     if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
     let response: Response;
     try {
-        response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+        response = await authenticatedFetch(path, { ...init, headers });
     } catch {
         throw new NetworkError("Can't reach the Data DJ server.");
     }
-    if (response.status === 401 && token) setSession(null, null); // expired or revoked
-
     if (response.status === 204) return undefined as T;
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) {

@@ -11,8 +11,8 @@ import { initAxes } from './axes';
 import * as midi from './midi'
 import * as toast from './toast';
 import * as auth from './auth';
-import { uploadBatchCsv } from './reduction-api';
-import { initRemoteBatch } from './runs';
+import { getJobBatch, uploadBatchCsv } from './reduction-api';
+import { clearRemoteBatch, initRemoteBatch } from './runs';
 
 window.onerror = (msg) => {
     toast.newError(`Something went wrong: ${msg}`)
@@ -67,6 +67,35 @@ inputEl.addEventListener('change', async () => {
 })
 initSamples(openFile)
 
+auth.onAuthChange(() => {
+    if (clearRemoteBatch()) {
+        fileNameEl.textContent = fileNameEl.title = '';
+        emptyStateEl.classList.remove('hidden');
+    }
+});
+
+const jobToOpen = new URLSearchParams(window.location.search).get('job');
+async function openCompletedJob(jobId: string) {
+    const userId = auth.getUser()?.id;
+    if (!userId) return;
+    try {
+        const manifest = await getJobBatch(jobId);
+        if (auth.getUser()?.id !== userId) return;
+        initRemoteBatch(jobId, manifest, 'job');
+        fileNameEl.textContent = fileNameEl.title = `${manifest.dataset.filename} · ${manifest.runs.length} runs`;
+        emptyStateEl.classList.add('hidden');
+    } catch (error) {
+        toast.newError(error instanceof Error ? error.message : 'Could not load the job.');
+    }
+}
+if (jobToOpen) {
+    if (auth.getUser()) void openCompletedJob(jobToOpen);
+    else toast.newMessage('Sign in to open this job.');
+    auth.onAuthChange((user) => {
+        if (user) void openCompletedJob(jobToOpen);
+    });
+}
+
 const openBatchButton = document.getElementById('open-batch-btn') as HTMLButtonElement;
 const batchDialog = document.getElementById('batch-dialog') as HTMLDialogElement;
 const batchForm = document.getElementById('batch-form') as HTMLFormElement;
@@ -95,6 +124,7 @@ batchForm.addEventListener('submit', async (event) => {
     batchProgress.classList.remove('hidden');
     batchProgress.value = 0;
     batchError.classList.add('hidden');
+    const userId = auth.getUser()?.id;
     try {
         batchProgressLabel.textContent = `Uploading ${(file.size / 1024 / 1024).toFixed(1)} MiB…`;
         const catalog = await uploadBatchCsv(file, (loaded, total) => {
@@ -103,6 +133,9 @@ batchForm.addEventListener('submit', async (event) => {
                 ? `Uploading ${(loaded / 1024 / 1024).toFixed(1)} of ${(total / 1024 / 1024).toFixed(1)} MiB`
                 : 'Upload complete. Indexing runs…';
         });
+        if (auth.getUser()?.id !== userId) {
+            throw new Error('Your account changed while the batch was uploading.');
+        }
         initRemoteBatch(catalog.batch_id, catalog);
         batchDialog.close();
         fileNameEl.textContent = fileNameEl.title = `${catalog.filename} · ${catalog.runs.length} runs`;

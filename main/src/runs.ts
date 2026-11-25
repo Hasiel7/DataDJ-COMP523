@@ -3,7 +3,7 @@ import * as renderer from './render';
 import * as input from './inputManager';
 import * as toast from './toast';
 import { chooseOption, setupHeader } from './header';
-import { getBatchRun, type BatchCatalog, type BatchManifest, type BatchRunResult } from './reduction-api';
+import { getBatchRun, getJobRun, type BatchCatalog, type BatchManifest, type BatchRunResult } from './reduction-api';
 
 // Result switcher for batch-results CSVs: many reductions of the same points,
 // one block of rows per run. Shows one run at a time and lets the method and
@@ -28,7 +28,7 @@ export interface RunState {
 
 let runs: Run[] = [];
 let current: Run | null = null;
-let remoteBatch: { batchId: string; manifest: BatchManifest | BatchCatalog } | null = null;
+let remoteBatch: { batchId: string; kind: 'batch' | 'job'; manifest: BatchManifest | BatchCatalog } | null = null;
 let requestSequence = 0;
 let activeRequest: AbortController | null = null;
 const remoteRunCache = new Map<number, BatchRunResult>();
@@ -140,11 +140,13 @@ function prefetchAdjacentRuns(run: Run) {
     if (!remoteBatch || run.runNumber === undefined) return;
     const index = runs.indexOf(run);
     const batchId = remoteBatch.batchId;
+    const kind = remoteBatch.kind;
     for (const neighbor of [runs[index - 1], runs[index + 1]]) {
         if (!neighbor || neighbor.runNumber === undefined || remoteRunCache.has(neighbor.runNumber)) continue;
         const neighborNumber = neighbor.runNumber;
-        void getBatchRun(batchId, neighborNumber).then((result) => {
-            if (remoteBatch?.batchId === batchId) cacheRemoteRun(neighborNumber, result);
+        const fetchRun = kind === 'job' ? getJobRun : getBatchRun;
+        void fetchRun(batchId, neighborNumber).then((result) => {
+            if (remoteBatch?.batchId === batchId && remoteBatch.kind === kind) cacheRemoteRun(neighborNumber, result);
         }).catch(() => undefined);
     }
 }
@@ -213,12 +215,13 @@ async function selectRun(run: Run, announce = true) {
                 remoteRunCache.delete(run.runNumber);
                 remoteRunCache.set(run.runNumber, result);
             } else {
-                result = await getBatchRun(
+                const fetchRun = remoteBatch.kind === 'job' ? getJobRun : getBatchRun;
+                result = await fetchRun(
                     remoteBatch.batchId, run.runNumber, activeRequest.signal,
                 );
-                cacheRemoteRun(run.runNumber, result);
             }
             if (sequence !== requestSequence) return;
+            cacheRemoteRun(run.runNumber, result);
             setupHeader(rowsForRemoteRun(result));
             current = run;
             container.dataset.loading = 'false';
@@ -380,13 +383,30 @@ export function initRuns() {
     toast.newMessage(`Loaded ${runs.length} runs. Showing ${describeRun(runs[0])}`);
 }
 
-export function initRemoteBatch(batchId: string, manifest: BatchManifest | BatchCatalog) {
+export function initRemoteBatch(
+    batchId: string, manifest: BatchManifest | BatchCatalog, kind: 'batch' | 'job' = 'batch',
+) {
     requestSequence++;
     activeRequest?.abort();
     activeRequest = null;
-    remoteBatch = { batchId, manifest };
+    remoteBatch = { batchId, manifest, kind };
     remoteRunCache.clear();
     initRunsFrom(manifestRuns(manifest));
+}
+
+export function clearRemoteBatch(): boolean {
+    if (!remoteBatch) return false;
+    requestSequence++;
+    activeRequest?.abort();
+    activeRequest = null;
+    remoteBatch = null;
+    remoteRunCache.clear();
+    runs = [];
+    current = null;
+    pickers.replaceChildren();
+    container.classList.add('hidden');
+    renderer.setVisibilityLayer('signed-out-remote', new Uint8Array(renderer.pointCount()));
+    return true;
 }
 
 function initRunsFrom(batchRuns: Run[]) {

@@ -313,7 +313,7 @@ async function queueBatchJob(): Promise<void> {
         });
 
         jobInstructions.classList.remove('hidden');
-        jobMessage.textContent = `Job ${submitted.job_id} is queued. Run the command below in a backend terminal.`;
+        jobMessage.textContent = `Job ${submitted.job_id} is queued. A cloud worker can process it automatically; use the command below only for a local worker.`;
         workerCommand.textContent =
             `Push-Location backend; uv run --project . python -m app.worker_cli ${submitted.job_id}; Pop-Location`;
         jobArtifact.textContent = '';
@@ -344,9 +344,14 @@ async function pollJobStatus(jobId: string): Promise<void> {
 
             if (job.status === 'succeeded') {
                 jobMessage.textContent = 'Job completed successfully.';
-                jobArtifact.textContent = job.artifact_path
-                    ? `Package available on the backend machine: ${job.artifact_path}`
-                    : 'Job completed, but no artifact path was recorded.';
+                if (job.artifact_path) {
+                    const link = document.createElement('a');
+                    link.href = `./index.html?job=${encodeURIComponent(job.job_id)}`;
+                    link.textContent = 'Open completed runs in the visualizer';
+                    jobArtifact.replaceChildren(link);
+                } else {
+                    jobArtifact.textContent = 'Job completed, but no artifact path was recorded.';
+                }
                 return;
             }
             if (job.status === 'failed' || job.status === 'cancelled') {

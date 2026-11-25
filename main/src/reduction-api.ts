@@ -97,7 +97,7 @@ export interface EmbeddingCsvDownload {
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api';
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${API_BASE}${path}`, init);
+    const response = await authenticatedFetch(path, init);
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) {
         const detail = payload && typeof payload === 'object' && 'detail' in payload
@@ -123,6 +123,16 @@ export function submitJob(request: GridJobRequest): Promise<JobSubmissionRespons
 
 export function getJobStatus(jobId: string): Promise<JobSummary> {
     return requestJson(`/jobs/${encodeURIComponent(jobId)}`);
+}
+
+export function getJobBatch(jobId: string): Promise<BatchManifest> {
+    return requestJson(`/jobs/${encodeURIComponent(jobId)}/batch`);
+}
+
+export function getJobRun(
+    jobId: string, runNumber: number, signal?: AbortSignal,
+): Promise<BatchRunResult> {
+    return requestJson(`/jobs/${encodeURIComponent(jobId)}/runs/${runNumber}`, { signal });
 }
 
 export function uploadDataset(
@@ -152,7 +162,7 @@ export function uploadDataset(
 }
 
 export async function createEmbedding(request: EmbeddingRequest): Promise<EmbeddingCsvDownload> {
-    const response = await fetch(`${API_BASE}/embeddings`, {
+    const response = await authenticatedFetch('/embeddings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
@@ -227,19 +237,75 @@ export function getBatchRun(
     );
 }
 
-export function uploadBatchCsv(
+interface DirectImportStatus {
+    import_id: string;
+    status: 'uploading' | 'queued' | 'running' | 'succeeded' | 'failed';
+    batch_id: string | null;
+    error_message: string | null;
+}
+
+async function uploadDirectBatch(
     file: File,
     onProgress: (loaded: number, total: number) => void,
 ): Promise<BatchCatalog> {
+    if (file.size < 1 || file.size > 2 * 1024 * 1024 * 1024) {
+        throw new Error('Batch CSV must be nonempty and no larger than 2 GiB.');
+    }
+    const upload = await requestJson<{ import_id: string; upload_url: string }>('/batch-imports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, size: file.size }),
+    });
+    await new Promise<void>((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('PUT', upload.upload_url);
+        request.setRequestHeader('x-ms-blob-type', 'BlockBlob');
+        request.setRequestHeader('x-ms-version', '2021-12-02');
+        request.upload.onprogress = (event) => {
+            if (event.lengthComputable) onProgress(event.loaded, event.total);
+        };
+        request.onerror = () => reject(new Error('Network error while uploading to storage.'));
+        request.onabort = () => reject(new DOMException('Upload cancelled.', 'AbortError'));
+        request.onload = () => {
+            if (request.status >= 200 && request.status < 300) resolve();
+            else reject(new Error(`Storage upload failed (${request.status}).`));
+        };
+        request.send(file);
+    });
+    onProgress(file.size, file.size);
+    let result = await requestJson<DirectImportStatus>(
+        `/batch-imports/${encodeURIComponent(upload.import_id)}/complete`, { method: 'POST' },
+    );
+    while (result.status === 'queued' || result.status === 'running') {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        result = await requestJson<DirectImportStatus>(
+            `/batch-imports/${encodeURIComponent(upload.import_id)}`,
+        );
+    }
+    if (result.status !== 'succeeded' || !result.batch_id) {
+        throw new Error(result.error_message ?? 'Batch import did not complete.');
+    }
+    return getBatchCatalog(result.batch_id);
+}
+
+export async function uploadBatchCsv(
+    file: File,
+    onProgress: (loaded: number, total: number) => void,
+): Promise<BatchCatalog> {
+    const capabilities = await requestJson<{ direct_uploads: boolean }>('/batch-imports/capabilities');
+    if (capabilities.direct_uploads) return uploadDirectBatch(file, onProgress);
     return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
         request.open('POST', `${API_BASE}/batches/import`);
+        const token = getAccessToken();
+        if (token) request.setRequestHeader('Authorization', `Bearer ${token}`);
         request.upload.onprogress = (event) => {
             if (event.lengthComputable) onProgress(event.loaded, event.total);
         };
         request.onerror = () => reject(new Error('Network error while uploading the batch CSV.'));
         request.onabort = () => reject(new DOMException('Upload cancelled.', 'AbortError'));
         request.onload = () => {
+            if (request.status === 401) handleUnauthorized(token);
             let payload: unknown;
             try {
                 payload = JSON.parse(request.responseText);
@@ -261,3 +327,4 @@ export function uploadBatchCsv(
         request.send(body);
     });
 }
+import { authenticatedFetch, getAccessToken, handleUnauthorized } from './auth';
