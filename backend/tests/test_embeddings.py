@@ -14,6 +14,8 @@ from app.services.embeddings import MAX_EMBEDDING_OBSERVATIONS
 from app.storage.embeddings import InMemoryEmbeddingStorage
 from app.storage.local import LocalDatasetStorage
 
+pytestmark = pytest.mark.usefixtures("route_auth")
+
 
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:

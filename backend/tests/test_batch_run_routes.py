@@ -21,6 +21,8 @@ from app.services.jobs import JobService
 from app.storage.batches import LocalBatchStorage
 from app.storage.local import LocalDatasetStorage
 
+pytestmark = pytest.mark.usefixtures("route_auth")
+
 
 @pytest.fixture
 def batch_api(tmp_path: Path):

@@ -14,6 +14,8 @@ from app.services.datasets import DatasetService
 from app.services.grids import expand_grid, expand_job_grid
 from app.storage.local import LocalDatasetStorage
 
+pytestmark = pytest.mark.usefixtures("route_auth")
+
 
 def test_decimal_range_has_exact_values() -> None:
     grid = NumericRange(start=Decimal("0.1"), stop=Decimal("0.3"), step=Decimal("0.1"))

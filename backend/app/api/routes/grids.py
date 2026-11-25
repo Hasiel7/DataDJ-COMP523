@@ -3,10 +3,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.deps import get_current_user, get_ownership_service
 from app.api.routes.datasets import get_dataset_storage
 from app.dr.config import Algorithm
+from app.schemas.auth import UserPublic
 from app.schemas.grid import GridPreviewRequest, GridPreviewResponse
 from app.services.grids import expand_job_grid
+from app.services.ownership import OwnershipService
 from app.storage.base import DatasetStorage
 
 router = APIRouter()
@@ -14,8 +17,12 @@ router = APIRouter()
 @router.post("/grids/preview", response_model=GridPreviewResponse)
 def preview_grid(
     body: GridPreviewRequest,
-    storage: Annotated[DatasetStorage, Depends(get_dataset_storage)]
+    storage: Annotated[DatasetStorage, Depends(get_dataset_storage)],
+    user: Annotated[UserPublic, Depends(get_current_user)],
+    owners: Annotated[OwnershipService, Depends(get_ownership_service)],
 ) -> GridPreviewResponse:
+    if not owners.owns("dataset", body.dataset_id, user.id):
+        raise HTTPException(status_code=404, detail="Dataset not found")
     metadata = storage.get_metadata(body.dataset_id)
     if metadata is None:
         raise HTTPException(status_code=404, detail="Dataset not found")

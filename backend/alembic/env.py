@@ -4,7 +4,9 @@ from sqlalchemy.engine import Connection
 
 from alembic import context
 from app.db import Base, create_database_engine
+from app.models.batch_import import BatchImport  # noqa: F401
 from app.models.job import Job  # noqa: F401
+from app.models.ownership import ResourceOwnership  # noqa: F401
 from app.models.user import Favorite, User  # noqa: F401
 
 config = context.config

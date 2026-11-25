@@ -12,6 +12,8 @@ from app.main import app
 from app.services.datasets import MAX_UPLOAD_BYTES, DatasetPreparationError, DatasetService
 from app.storage.local import LocalDatasetStorage
 
+pytestmark = pytest.mark.usefixtures("route_auth")
+
 
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:

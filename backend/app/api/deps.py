@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.schemas.auth import UserPublic
 from app.services.auth import AuthService, InvalidTokenError, jwt_secret
+from app.services.ownership import OwnershipService
 
 # auto_error=False so a missing header gets our 401 rather than FastAPI's 403
 _bearer = HTTPBearer(auto_error=False)
@@ -19,6 +20,12 @@ def get_auth_service(
     sessions: Annotated[sessionmaker[Session], Depends(get_session_factory)],
 ) -> AuthService:
     return AuthService(sessions, jwt_secret())
+
+
+def get_ownership_service(
+    sessions: Annotated[sessionmaker[Session], Depends(get_session_factory)],
+) -> OwnershipService:
+    return OwnershipService(sessions)
 
 
 def get_current_user(

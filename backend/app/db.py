@@ -21,7 +21,12 @@ def create_database_engine(database_path: Path | None = None) -> Engine:
                 "DATA_DJ_DATABASE_URL must use postgresql+psycopg."
             )
 
-        return create_engine(url, pool_pre_ping=True)
+        return create_engine(
+            url,
+            pool_pre_ping=True,
+            pool_timeout=5,
+            connect_args={"connect_timeout": 10},
+        )
     path = (
         database_path
         if database_path is not None

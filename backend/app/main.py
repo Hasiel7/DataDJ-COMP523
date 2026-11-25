@@ -18,6 +18,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.jobs import router as jobs_router
 from app.db import create_database_engine, create_session_factory
 from app.storage.batches import LocalBatchStorage
+from app.storage.blob_batches import BlobBatchStorage
 from app.storage.blob_datasets import BlobDatasetStorage
 from app.storage.embeddings import InMemoryEmbeddingStorage
 from app.storage.local import LocalDatasetStorage
@@ -30,18 +31,47 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     try:
         with ExitStack() as resources:
             backend = os.environ.get("DATA_DJ_DATASET_STORAGE", "local")
+            job_backend = os.environ.get("DATA_DJ_JOB_STORAGE", "local")
+            direct_uploads = os.environ.get("DATA_DJ_DIRECT_BATCH_UPLOADS", "0")
+            if direct_uploads not in ("0", "1"):
+                raise ValueError("DATA_DJ_DIRECT_BATCH_UPLOADS must be 0 or 1.")
+            if direct_uploads == "1" and (backend != "blob" or job_backend != "blob"):
+                raise ValueError("Direct batch uploads require Blob datasets and Blob jobs.")
+            if job_backend not in ("local", "blob"):
+                raise ValueError(f"Unsupported job storage backend: {job_backend!r}")
+            if job_backend == "blob" and backend != "blob":
+                raise ValueError("Blob job storage requires Blob dataset storage.")
+            if job_backend == "blob" and not os.environ.get("DATA_DJ_DATABASE_URL"):
+                raise ValueError("Blob job storage requires PostgreSQL.")
+            if (
+                (backend == "blob" or os.environ.get("DATA_DJ_DATABASE_URL"))
+                and not os.environ.get("DATA_DJ_JWT_SECRET")
+            ):
+                raise ValueError("Shared storage requires DATA_DJ_JWT_SECRET.")
 
+            application.state.job_blob_container = None
+            application.state.direct_batch_blob_service = None
             if backend == "local":
                 application.state.dataset_storage = LocalDatasetStorage()
+                application.state.batch_storage = LocalBatchStorage(Path(
+                    os.environ.get(
+                        "DATA_DJ_BATCH_ROOT",
+                        str(Path(__file__).resolve().parents[1] / "data" / "batches"),
+                    )
+                ))
             elif backend == "blob":
                 account_url = os.environ["DATA_DJ_BLOB_ACCOUNT_URL"]
                 credential = resources.enter_context(ManagedIdentityCredential())
                 service = resources.enter_context(
                     BlobServiceClient(account_url=account_url, credential=credential)
                 )
-                application.state.dataset_storage = BlobDatasetStorage(
-                    service.get_container_client("datadj")
-                )
+                container = service.get_container_client("datadj")
+                application.state.dataset_storage = BlobDatasetStorage(container)
+                application.state.batch_storage = BlobBatchStorage(container)
+                if direct_uploads == "1":
+                    application.state.direct_batch_blob_service = service
+                if job_backend == "blob":
+                    application.state.job_blob_container = container
             else:
                 raise ValueError(f"Unsupported dataset storage backend: {backend!r}")
 
@@ -78,6 +108,8 @@ app.add_middleware(
 
 app.state.dataset_storage = LocalDatasetStorage()
 app.state.embedding_storage = InMemoryEmbeddingStorage()
+app.state.job_blob_container = None
+app.state.direct_batch_blob_service = None
 app.state.batch_storage = LocalBatchStorage(Path(
     os.environ.get(
         "DATA_DJ_BATCH_ROOT",

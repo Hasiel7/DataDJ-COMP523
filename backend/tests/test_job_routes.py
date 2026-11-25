@@ -12,10 +12,14 @@ from app.api.routes.jobs import get_job_service
 from app.db import Base, create_database_engine, create_session_factory
 from app.main import app
 from app.models.job import Job
+from app.models.user import User
 from app.services.datasets import DatasetService
 from app.services.job_executor import JobExecutor
 from app.services.jobs import JobService
 from app.storage.local import LocalDatasetStorage
+from conftest import ROUTE_TEST_USER_ID
+
+pytestmark = pytest.mark.usefixtures("route_auth")
 
 
 @dataclass
@@ -45,6 +49,8 @@ def api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[JobApi]:
     engine = create_database_engine(tmp_path / "jobs.sqlite3")
     Base.metadata.create_all(engine)
     sessions = create_session_factory(engine)
+    with sessions.begin() as session:
+        session.add(User(id=ROUTE_TEST_USER_ID, email="route-test@example.com", password_hash="unused"))
     storage = LocalDatasetStorage(tmp_path / "datasets")
     dataset = DatasetService().prepare(b"value\n1\n2\n3\n4\n5\n", "sample.csv")
     storage.save(dataset)

@@ -2,7 +2,18 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, Enum, String, Text, Uuid
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -66,3 +77,25 @@ class Job(Base):
     error_message: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
+
+class JobCheckpoint(Base):
+    __tablename__ = "job_checkpoints"
+    __table_args__ = (
+        CheckConstraint("run_number > 0", name="ck_job_checkpoints_run_positive"),
+        Index(
+            "ix_job_checkpoints_job_run_embedding",
+            "job_id",
+            "run_number",
+            "embedding_id",
+        ),
+    )
+
+    job_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    identity_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_number: Mapped[int] = mapped_column(Integer, primary_key=True)
+    blob_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    embedding_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)

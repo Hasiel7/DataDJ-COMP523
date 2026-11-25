@@ -9,6 +9,42 @@ from alembic import command
 from app.db import create_database_engine
 
 
+def test_ownership_migration_quarantines_legacy_jobs(tmp_path: Path) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    config = Config(str(backend / "alembic.ini"))
+    engine = create_database_engine(tmp_path / "ownership-migration.sqlite3")
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "bf7d3e46cffe")
+            connection.execute(
+                text(
+                    "INSERT INTO jobs (id, dataset_id, status, request_payload, created_at) "
+                    "VALUES (:id, :dataset, 'queued', '{}', '2026-10-25')"
+                ),
+                {"id": "1" * 32, "dataset": "2" * 32},
+            )
+            command.upgrade(config, "head")
+            assert connection.scalar(text("SELECT count(*) FROM resource_ownership")) == 0
+            assert connection.scalar(text("SELECT count(*) FROM jobs")) == 1
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO resource_ownership (resource_type, resource_id, user_id) "
+                        "VALUES ('job', :id, :owner)"
+                    ),
+                    {"id": "1" * 32, "owner": "3" * 32},
+                )
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "bf7d3e46cffe")
+            assert connection.scalar(text("SELECT count(*) FROM jobs")) == 1
+    finally:
+        config.attributes.pop("connection", None)
+        engine.dispose()
+
+
 def test_initial_migration_upgrades_and_downgrades(tmp_path: Path) -> None:
     backend = Path(__file__).resolve().parents[1]
     config = Config(str(backend / "alembic.ini"))
@@ -207,6 +243,70 @@ def test_job_lease_migration_preserves_existing_jobs(tmp_path: Path) -> None:
             assert connection.execute(
                 text("SELECT status FROM jobs")
             ).scalar_one() == "queued"
+    finally:
+        config.attributes.pop("connection", None)
+        engine.dispose()
+
+def test_checkpoint_migration_constraints_and_downgrade(tmp_path: Path) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    config = Config(str(backend / "alembic.ini"))
+    engine = create_database_engine(tmp_path / "checkpoint-migration.sqlite3")
+
+    job_id = "1" * 32
+    record = {
+        "job_id": job_id,
+        "identity": "a" * 64,
+        "run": 1,
+        "key": "jobs/example/attempts/example/checkpoints/1.json",
+        "embedding_id": "2" * 32,
+    }
+    insert_checkpoint = text(
+        "INSERT INTO job_checkpoints "
+        "(job_id, identity_hash, run_number, blob_key, embedding_id) "
+        "VALUES (:job_id, :identity, :run, :key, :embedding_id)"
+    )
+
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "569fd8d7a764")
+            connection.execute(
+                text(
+                    "INSERT INTO jobs "
+                    "(id, dataset_id, status, request_payload, created_at) "
+                    "VALUES (:id, :dataset_id, 'queued', '{}', '2026-10-25')"
+                ),
+                {"id": job_id, "dataset_id": "3" * 32},
+            )
+
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+            connection.execute(insert_checkpoint, record)
+
+        # Duplicate checkpoint and invalid run number must fail.
+        for invalid in (record, {**record, "run": 0}):
+            with pytest.raises(IntegrityError):
+                with engine.begin() as connection:
+                    connection.execute(insert_checkpoint, invalid)
+
+        with engine.begin() as connection:
+            connection.execute(text("DELETE FROM jobs WHERE id = :id"), {"id": job_id})
+            assert connection.scalar(
+                text("SELECT COUNT(*) FROM job_checkpoints")
+            ) == 0
+
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(insert_checkpoint, record)
+
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "569fd8d7a764")
+
+        with engine.connect() as connection:
+            assert "job_checkpoints" not in inspect(connection).get_table_names()
+            assert "jobs" in inspect(connection).get_table_names()
     finally:
         config.attributes.pop("connection", None)
         engine.dispose()

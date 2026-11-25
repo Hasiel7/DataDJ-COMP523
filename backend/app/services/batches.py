@@ -23,7 +23,7 @@ from app.services.batch_export import BatchCsvWriter
 from app.services.embeddings import DatasetNotFoundError, EmbeddingService
 from app.services.grids import expand_job_grid
 from app.storage.base import DatasetStorage
-from app.storage.checkpoints import RunCheckpoints
+from app.storage.checkpoints import CheckpointStore, RunCheckpoints
 
 _create_parallel = cast(Callable[..., Parallel], Parallel)
 
@@ -62,8 +62,8 @@ class BatchService:
         dataset: PreparedDataset,
         configs: tuple[AlgorithmConfig, ...],
         random_seed: int,
-        checkpoints: RunCheckpoints | None = None,
-    ) -> Iterator[EmbeddingResult]:
+        checkpoints: CheckpointStore | None = None,    
+        ) -> Iterator[EmbeddingResult]:
         def request_for(config: AlgorithmConfig) -> EmbeddingRequest:
             return EmbeddingRequest(
                 dataset_id=dataset.metadata.dataset_id, config=config, random_seed=random_seed
@@ -84,6 +84,9 @@ class BatchService:
                     result = self.embedding_service.compute_prepared(dataset, request)
                     if checkpoints is not None:
                         checkpoints.save(run_number, result)
+                        result = checkpoints.load(run_number, dataset, request)
+                        if result is None:
+                            raise ValueError(f"Checkpoint for run {run_number} is invalid.")
                 yield result
             return
 
@@ -149,7 +152,10 @@ class BatchService:
         output: TextIO,
         *,
         checkpoint_directory: Path | None = None,
+        checkpoint_factory: Callable[[str], CheckpointStore] | None = None,
     ) -> BatchManifest:
+        if checkpoint_directory is not None and checkpoint_factory is not None:
+            raise ValueError("Choose one checkpoint backend.")
         dataset = self.dataset_storage.get(request.dataset_id)
         if dataset is None:
             raise DatasetNotFoundError("Dataset not found.")
@@ -182,8 +188,8 @@ class BatchService:
         records: list[BatchRunRecord] = []
         writer = BatchCsvWriter(output, request.n_components)
 
-        checkpoints = None
-        if checkpoint_directory is not None:
+        checkpoints: CheckpointStore | None = None
+        if checkpoint_directory is not None or checkpoint_factory is not None:   
             identity = json.dumps(
                 {
                     "format_version": 1,
@@ -198,7 +204,10 @@ class BatchService:
                 },
                 sort_keys=True,
             )
-            checkpoints = RunCheckpoints(checkpoint_directory, identity)
+            if checkpoint_directory is not None:
+                checkpoints = RunCheckpoints(checkpoint_directory, identity)
+            elif checkpoint_factory is not None:
+                checkpoints = checkpoint_factory(identity)
         results = self._compute_results(dataset, configs, request.random_seed, checkpoints)
         for run_number, (config, result) in enumerate(zip(configs, results, strict=True), start=1):
             writer.append(result, run_number)
@@ -256,6 +265,7 @@ class BatchService:
         output_directory: Path,
         *,
         checkpoint_directory: Path | None = None,
+        checkpoint_factory: Callable[[str], CheckpointStore] | None = None,
     ) -> Path:
         output_directory.mkdir(parents=True, exist_ok=True)
 
@@ -267,12 +277,19 @@ class BatchService:
             csv_path = staging / "embeddings.csv"
 
             with csv_path.open("w", encoding="utf-8", newline="") as output:
-                if checkpoint_directory is None:
-                    manifest = self.compute_csv_with_manifest(request, output)
-                else:
+                if checkpoint_factory is not None:
+                    manifest = self.compute_csv_with_manifest(
+                        request,
+                        output,
+                        checkpoint_directory=checkpoint_directory,
+                        checkpoint_factory=checkpoint_factory,
+                    )
+                elif checkpoint_directory is not None:
                     manifest = self.compute_csv_with_manifest(
                         request, output, checkpoint_directory=checkpoint_directory
                     )
+                else:
+                    manifest = self.compute_csv_with_manifest(request, output)
 
             manifest_path = staging / "manifest.json"
             manifest_path.write_text(
@@ -308,7 +325,11 @@ class BatchService:
         output_directory: Path,
         *,
         checkpoint_directory: Path | None = None,
+        checkpoint_factory: Callable[[str], CheckpointStore] | None = None,
     ) -> Path:
         return self.compute_package(
-            plan, output_directory, checkpoint_directory=checkpoint_directory
+            plan,
+            output_directory,
+            checkpoint_directory=checkpoint_directory,
+            checkpoint_factory=checkpoint_factory,
         )

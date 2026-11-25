@@ -1,8 +1,11 @@
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+from app.api.deps import get_current_user, get_ownership_service
 from app.api.routes.datasets import get_dataset_storage
+from app.schemas.auth import UserPublic
 from app.schemas.embedding import EmbeddingRequest, EmbeddingResult
 from app.services.embedding_export import embedding_csv
 from app.services.embeddings import (
@@ -10,6 +13,7 @@ from app.services.embeddings import (
     EmbeddingInputTooLargeError,
     EmbeddingService,
 )
+from app.services.ownership import OwnershipService
 from app.storage.base import DatasetStorage
 from app.storage.embeddings import EmbeddingStorage
 
@@ -28,9 +32,13 @@ def get_embedding_storage(request: Request) -> EmbeddingStorage:
 )
 def create_embedding(
     body: EmbeddingRequest,
+    user: Annotated[UserPublic, Depends(get_current_user)],
+    owners: Annotated[OwnershipService, Depends(get_ownership_service)],
     dataset_storage: DatasetStorage = Depends(get_dataset_storage),
     embedding_storage: EmbeddingStorage = Depends(get_embedding_storage),
 ) -> Response:
+    if not owners.owns("dataset", body.dataset_id, user.id):
+        raise HTTPException(status_code=404, detail="Dataset not found.")
     try:
         embedding = EmbeddingService(dataset_storage).compute(body)
     except DatasetNotFoundError as error:
@@ -56,9 +64,11 @@ def create_embedding(
 @router.get("/embeddings/{embedding_id}", response_model=EmbeddingResult)
 def get_embedding(
     embedding_id: UUID,
+    user: Annotated[UserPublic, Depends(get_current_user)],
+    owners: Annotated[OwnershipService, Depends(get_ownership_service)],
     storage: EmbeddingStorage = Depends(get_embedding_storage),
 ) -> EmbeddingResult:
     embedding = storage.get(embedding_id)
-    if embedding is None:
+    if embedding is None or not owners.owns("dataset", embedding.dataset_id, user.id):
         raise HTTPException(status_code=404, detail="Embedding not found.")
     return embedding

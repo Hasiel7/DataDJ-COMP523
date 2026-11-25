@@ -259,8 +259,8 @@ settings; increasing observation count can increase runtime nonlinearly.
 ## Viewing Large Batches
 
 The explorer's **Open batch CSV** control accepts an exported batch directly;
-researchers do not need a job ID. The browser uploads the file with transfer
-progress to `POST /api/batches/import`. FastAPI's multipart `UploadFile` spools
+researchers do not need a job ID. By default, the browser uploads the file with
+transfer progress to `POST /api/batches/import`. FastAPI's multipart `UploadFile` spools
 larger request bodies to a temporary file; the importer then parses that file
 row by row rather than reading the complete upload into a bytes object. The
 current upload limit is 2 GiB.
@@ -277,8 +277,9 @@ from contiguous algorithm/configuration blocks. It validates configuration,
 coordinates, unique observation IDs, row alignment across runs, sequential run
 numbers, and size limits. It writes one gzip-compressed CSV partition at a time
 under a staging directory. Only after the entire file validates does it
-atomically publish a catalog under `DATA_DJ_BATCH_ROOT` (default
-`backend/data/batches`). Invalid uploads remove their staging directory.
+publish a catalog. With local storage it is placed under `DATA_DJ_BATCH_ROOT`
+(default `backend/data/batches`); Blob storage uploads all partitions before
+the catalog. Invalid uploads remove their local staging directory.
 
 The returned opaque batch ID is a catalog reference, not a job ID. The UI loads
 the small catalog and fetches `GET /api/batches/{batch_id}/runs/{run_number}`
@@ -288,27 +289,127 @@ fast without retaining the whole sweep. Upload indexing time depends on file
 size, storage speed, and compression; switching to a cached adjacent run is
 immediate, while a cache miss requires one run request.
 
-`BatchStorage` is the storage boundary. The current implementation stores local
-compressed partitions, while a future object-storage implementation can use the
-same catalog/run interface without exposing local filesystem paths to users.
-For deployment, configure `DATA_DJ_BATCH_ROOT` consistently or provide a
-shared storage implementation; local batch catalogs are not automatically
-available to other machines. Hosted deployments must set `VITE_API_BASE_URL`
-to an API that can access the same batch storage.
-The current import/catalog endpoints are a local prototype without per-user
-ownership checks. Before public deployment, associate catalogs with the signed-in
-user (or an explicit share grant), enforce authorization on catalog/run reads,
-and add retention/quota controls; an unguessable UUID alone is not an access
-control policy.
+PostgreSQL connections use a 5-second pool checkout timeout and a 10-second
+libpq connection timeout. The application setting overrides `connect_timeout`
+in `DATA_DJ_DATABASE_URL`. These limits do not bound every DNS lookup or
+network stall on an established connection.
+
+`DATA_DJ_DATASET_STORAGE=blob` stores imported batch partitions and catalogs
+in the same private Blob container as datasets. By default, imports still happen
+within the API request. The optional direct-upload workflow below moves the
+upload to Blob Storage and indexing to the cloud worker. An interrupted import
+can leave unreferenced Blobs that require a cleanup policy.
 Large exhaustive sweeps still need progress reporting, explicit retry and
 cancellation controls, compact previews, and retention limits before those
 grid limits are raised. This worker adds local checkpoint recovery and automatic
 queue consumption without changing the public job API.
 
+### Direct batch uploads (private preview)
+
+This feature is **off by default**. Before enabling it, back up the database,
+review and apply the new Alembic migration, then deploy the updated API, frontend,
+and cloud worker together. No migration or Azure configuration is applied
+automatically. Set `DATA_DJ_DIRECT_BATCH_UPLOADS=1` on both the API and worker;
+the API also requires PostgreSQL, `DATA_DJ_DATASET_STORAGE=blob`, and
+`DATA_DJ_JOB_STORAGE=blob`. With the flag unset, the existing local and
+synchronous workflows remain unchanged.
+
+The API's managed identity must be able to obtain a user delegation key at
+storage-account scope (the `Storage Blob Delegator` role provides that action)
+and have the necessary Blob data permissions for the private `datadj` container.
+The API needs permission to delete rejected sources; the worker needs Blob
+read, write, and delete permissions for that container.
+Review existing assignments and use the minimum suitable scopes; do not grant
+account keys to the browser. See Microsoft's
+[user delegation SAS guidance](https://learn.microsoft.com/azure/storage/blobs/storage-blob-user-delegation-sas-create-python).
+
+Configure **Blob service CORS**, separately from API CORS, to allow the exact
+Vercel origin and `PUT` with `content-type`, `x-ms-blob-type`, and
+`x-ms-version` request headers. Add local development origins only if needed.
+CORS is not authentication. The browser also needs network connectivity to the
+Blob endpoint; a private container does not itself imply private networking.
+If the storage firewall or private endpoint blocks the browser, direct upload
+will fail. Do not make the container public.
+
+1. After sign-in, `POST /api/batch-imports` requests a scoped, HTTPS-only,
+   two-hour user-delegation SAS for one new source Blob. Treat the URL as a
+   bearer secret; don't log, share, or persist it.
+2. The browser sends the CSV to that Blob and calls
+   `POST /api/batch-imports/{import_id}/complete`. The API checks the actual
+   Blob length (nonempty, at most 2 GiB), saves its ETag, and queues the import.
+3. The worker claims the import using a PostgreSQL lease and heartbeat, downloads
+   the approved ETag to temporary disk, validates and indexes it, and uploads
+   partitions followed by the catalog. A changed source fails rather than being
+   indexed. The owner and completed batch ID are committed together only while
+   the lease remains valid. An expired lease can be claimed by another worker.
+4. The browser polls `GET /api/batch-imports/{import_id}` and opens the batch
+   when it succeeds. Only its owner can complete or inspect an import. Failed
+   imports currently require a new upload; there is no cancel, resume, or
+   in-browser recovery after a page refresh.
+
+The SAS does **not** enforce a byte limit during the upload. A holder can upload
+an oversized Blob or rewrite the same Blob until the token expires; validation
+occurs after upload and cannot prevent temporary storage charges. Quotas, rate
+limits, and aggregate cost controls are not implemented. Successful and failed
+worker imports attempt to delete the source, as do rejected oversized uploads;
+deletion failures are logged. Abandoned uploads, recreated sources, and orphan
+partitions can remain. Configure and verify a storage lifecycle policy for the
+`batch-uploads/` prefix and plan separate cleanup for orphan batch partitions
+and stale database records before relying on this feature. Account for the
+source file **and** compressed partitions on worker temporary disk. A single
+interrupted HTTP upload must be restarted, and a two-hour token can expire on
+slow connections.
+
+## Private cloud worker
+
+The existing local `app.worker_cli` uses a filesystem lock and local artifacts.
+Do not run it as the cloud worker. The separate cloud consumer uses PostgreSQL
+leases, periodic heartbeats, and attempt-specific Blob checkpoints and exports:
+
+```powershell
+uv run --directory backend python -m app.cloud_worker_cli
+```
+
+Configure both API and worker with `DATA_DJ_DATABASE_URL` using
+`postgresql+psycopg`, verified PostgreSQL TLS, and `DATA_DJ_BLOB_ACCOUNT_URL`.
+The managed identity needs appropriate access to the private `datadj` container.
+Set the API's `DATA_DJ_DATASET_STORAGE=blob` and `DATA_DJ_JOB_STORAGE=blob`;
+the worker always uses PostgreSQL and Blob storage. Set a strong
+`DATA_DJ_JWT_SECRET` on the API. Shared-storage startup fails if it is missing.
+The same container image can run the worker with its command overridden to
+`uv run --frozen --no-dev python -m app.cloud_worker_cli`. Initially run one
+continuously available worker replica and size CPU, memory, and temporary disk
+for the largest expected job.
+
+The owner can retrieve a completed job's catalog, individual runs, or streamed
+ZIP via `/api/jobs/{job_id}/batch`, `/api/jobs/{job_id}/runs/{run_number}`, and
+`/api/jobs/{job_id}/export`. A completed job can also be opened from the
+Reduction lab. ZIP export requires an authenticated HTTP client; the browser
+does not yet offer a streaming download button. Synchronous embedding results
+remain in process memory and are not shared across API replicas. Blob manifests
+are published before ZIPs; a stale attempt cannot
+publish its result, but can leave orphan Blobs. Cleanup and retention are not
+implemented. Lease expiry prevents stale database publication, but does not
+interrupt a scientific computation or bound every network stall.
+
+Run migrations before starting the new code. Back up the Azure database and
+confirm the deployment plan before running any migration against it; the code
+changes do not automatically migrate or deploy Azure. Existing datasets, jobs,
+and imported batches have no ownership record and are inaccessible through
+authenticated endpoints until deliberately assigned to their verified owner.
+The cloud worker skips unowned queued jobs.
+Do not assign legacy data to an account without verifying ownership. Downgrading
+the ownership migration discards ownership records.
+
+Keep the API private until real Azure end-to-end testing, rate limits, quotas,
+retention, backup/recovery, least-privilege access, and operational monitoring
+are in place. Cleanup is incomplete, including orphaned worker artifacts.
+No Azure resource or database migration is performed by these instructions.
+
 ## Accounts and Favorites
 
 The visualizer's favorites are saved per user when signed in. The explorer only
-shows Sign in and the Reduction lab link when it is built or served with
+shows Sign in and the Reduction lab link in development or when it is built with
 `VITE_API_BASE_URL` set (locally, `http://127.0.0.1:8000/api`). Create or update
 the database tables before starting the API (safe to run repeatedly):
 
@@ -323,10 +424,13 @@ uv run --directory backend alembic upgrade head
 	`Authorization: Bearer <token>`; tokens last 7 days.
 - `GET /api/favorites?file=<name>`, `POST /api/favorites`, and
 	`DELETE /api/favorites/{id}` act only on the signed-in user's favorites.
+- Dataset, embedding, grid, batch, and job endpoints require a bearer token.
+  New resources are private to their creator; another user's resource and an
+  unowned legacy resource both return 404. Local API use also requires sign-in.
 
 Environment variables:
 
-- `DATA_DJ_JWT_SECRET` signs the tokens. Without it the API logs a warning and
-	uses a development-only secret; always set it outside local development.
+- `DATA_DJ_JWT_SECRET` signs the tokens. A development-only fallback is used
+  only for local storage; shared PostgreSQL or Blob storage requires a secret.
 - `DATA_DJ_CORS_ORIGINS` adds comma-separated browser origins, such as the
 	GitHub Pages site (`https://<user>.github.io`), to the local Vite origins.

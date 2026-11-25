@@ -4,17 +4,22 @@ from uuid import UUID
 from zipfile import ZipFile
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routes.jobs import get_job_service
 from app.db import Base, create_database_engine, create_session_factory
 from app.main import app
 from app.models.job import JobStatus
+from app.models.user import User
 from app.services.batches import BatchService
 from app.services.datasets import DatasetService
 from app.services.job_executor import JobExecutor
 from app.services.jobs import JobService
 from app.storage.local import LocalDatasetStorage
+from conftest import ROUTE_TEST_USER_ID
+
+pytestmark = pytest.mark.usefixtures("route_auth")
 
 
 def test_api_submission_worker_execution_and_status(tmp_path: Path) -> None:
@@ -26,6 +31,8 @@ def test_api_submission_worker_execution_and_status(tmp_path: Path) -> None:
     )
     datasets.save(dataset)
     Base.metadata.create_all(engine)
+    with sessions.begin() as session:
+        session.add(User(id=ROUTE_TEST_USER_ID, email="route-test@example.com", password_hash="unused"))
 
     jobs = JobService(sessions, datasets)
     app.dependency_overrides[get_job_service] = lambda: jobs
